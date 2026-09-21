@@ -1,0 +1,181 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ============================================================
+   Theme tokens
+   Every color in the app is expressed as a CSS variable here.
+   Components reference them via Tailwind arbitrary values, e.g.
+   bg-[var(--bg-card)] text-[var(--text-primary)]
+   so a single class list works correctly in both themes.
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-app: #0b0f14;
+  --bg-app-alt: #0e141b;
+  --bg-surface: #0e141b;
+  --bg-card: #131a22;
+  --bg-card-hover: #161e27;
+  --bg-inset: #0a0e13;
+  --bg-overlay: rgba(9, 12, 16, 0.72);
+  --bg-hover: rgba(255, 255, 255, 0.04);
+
+  /* Subtle "wash" overlays used for zebra rows, header bands, chips, etc. */
+  --wash-1: rgba(255, 255, 255, 0.02);
+  --wash-2: rgba(255, 255, 255, 0.04);
+  --wash-3: rgba(255, 255, 255, 0.06);
+  --wash-4: rgba(255, 255, 255, 0.08);
+
+  /* Borders */
+  --border: #1c242d;
+  --border-strong: #232c36;
+
+  /* Text */
+  --text-primary: #e7ecf1;
+  --text-secondary: #c3ccd6;
+  --text-muted: #8592a0;
+  --text-faint: #5b6672;
+  --text-on-accent: #1a1206;
+
+  /* Brand accent (amber) */
+  --accent: #f59e0b;
+  --accent-strong: #fbbf24;
+  --accent-soft-bg: rgba(245, 158, 11, 0.1);
+  --accent-soft-border: rgba(245, 158, 11, 0.22);
+
+  /* Shadows */
+  --shadow-card: 0 8px 24px -6px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.5);
+
+  /* Map chrome */
+  --map-bg: #0b0f14;
+  --route-line: #60a5fa;
+
+  /* Scrollbar */
+  --scrollbar-thumb: #2a333e;
+  --scrollbar-thumb-hover: #3a4552;
+
+  /* Tailwind accent-token retune so badges/status pills built from
+     emerald/rose/blue/amber/slate utilities stay on-brand and legible
+     in both themes without touching every call site. */
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-amber-600: #d97706;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-emerald-600: #059669;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-rose-600: #e11d48;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-blue-600: #2563eb;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* Surfaces */
+  --bg-app: #f6f7f9;
+  --bg-app-alt: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f7f8fa;
+  --bg-inset: #eef0f3;
+  --bg-overlay: rgba(15, 20, 26, 0.4);
+  --bg-hover: rgba(15, 23, 42, 0.035);
+
+  --wash-1: rgba(15, 23, 42, 0.035);
+  --wash-2: rgba(15, 23, 42, 0.05);
+  --wash-3: rgba(15, 23, 42, 0.07);
+  --wash-4: rgba(15, 23, 42, 0.09);
+
+  /* Borders */
+  --border: #e6e8eb;
+  --border-strong: #d8dbe0;
+
+  /* Text */
+  --text-primary: #16191d;
+  --text-secondary: #454b53;
+  --text-muted: #6b7280;
+  --text-faint: #8a909a;
+  --text-on-accent: #2a1a00;
+
+  /* Brand accent */
+  --accent: #b45309;
+  --accent-strong: #92400e;
+  --accent-soft-bg: rgba(180, 83, 9, 0.08);
+  --accent-soft-border: rgba(180, 83, 9, 0.22);
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 16px -4px rgba(16, 24, 40, 0.08);
+  --shadow-pop: 0 8px 24px -4px rgba(16, 24, 40, 0.16);
+
+  /* Map chrome */
+  --map-bg: #eef0f3;
+  --route-line: #2563eb;
+
+  /* Scrollbar */
+  --scrollbar-thumb: #d8dbe0;
+  --scrollbar-thumb-hover: #c3c8cf;
+
+  /* Darker/more saturated accent shades for AA contrast on white */
+  --color-amber-400: #b45309;
+  --color-amber-500: #b45309;
+  --color-amber-600: #92400e;
+  --color-emerald-400: #059669;
+  --color-emerald-500: #059669;
+  --color-emerald-600: #047857;
+  --color-rose-400: #e11d48;
+  --color-rose-500: #e11d48;
+  --color-rose-600: #be123c;
+  --color-blue-400: #2563eb;
+  --color-blue-500: #2563eb;
+  --color-blue-600: #1d4ed8;
+  --color-slate-400: #64748b;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  background-color: var(--bg-app);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  transition: background-color 0.15s ease;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+.leaflet-container { background: var(--map-bg); font-family: var(--font-sans); }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-strong);
+}
+.leaflet-popup-content-wrapper { border-radius: 10px; }
+.leaflet-popup-content b { color: var(--text-primary); }
+.leaflet-control-zoom a { background: var(--bg-card) !important; color: var(--text-primary) !important; border-color: var(--border-strong) !important; }
+.leaflet-control-zoom a:hover { background: var(--bg-card-hover) !important; }
+.leaflet-control-attribution { background: var(--bg-overlay) !important; color: var(--text-muted) !important; font-size: 9px !important; }
+.leaflet-control-attribution a { color: var(--text-muted) !important; }
+:root[data-theme='light'] .leaflet-tile { filter: saturate(0.9) brightness(1.02); }
