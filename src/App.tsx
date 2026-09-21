@@ -28,13 +28,28 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   render() {
     if (this.state.hasError) {
+      const msg = this.state.error?.message || '';
+      const isTranslateError =
+        msg.includes('insertBefore') ||
+        msg.includes('removeChild') ||
+        msg.includes('anak dari node ini') ||
+        msg.includes('not a child of this node');
+
       return (
         <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--bg-app,#0f172a)] text-[var(--text-primary,#f8fafc)]">
           <div className="max-w-md w-full bg-[var(--bg-card,#1e293b)] border border-[var(--border,#334155)] rounded-xl p-6 text-center shadow-xl">
             <h2 className="text-lg font-bold text-rose-400 mb-2">Terjadi Kendala Tampilan</h2>
-            <p className="text-xs text-[var(--text-muted,#94a3b8)] mb-4">
-              {this.state.error?.message || 'Terjadi kesalahan tidak terduga pada komponen halaman ini.'}
-            </p>
+            {isTranslateError ? (
+              <p className="text-xs text-[var(--text-muted,#94a3b8)] mb-4 leading-relaxed">
+                Fitur <strong>Google Translate / Terjemahan Otomatis</strong> di browser PC ini aktif dan mengubah struktur teks aplikasi.
+                <br /><br />
+                Klik ikon <strong>Google Translate</strong> di address bar browser, lalu pilih <strong>&quot;Jangan pernah terjemahkan situs ini&quot;</strong>.
+              </p>
+            ) : (
+              <p className="text-xs text-[var(--text-muted,#94a3b8)] mb-4">
+                {msg || 'Terjadi kesalahan tidak terduga pada komponen halaman ini.'}
+              </p>
+            )}
             <button
               type="button"
               onClick={() => window.location.reload()}
