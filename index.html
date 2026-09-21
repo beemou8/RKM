@@ -7,6 +7,43 @@
     <title>RKM Visit Monitoring</title>
     <script>
       (function () {
+        // Proteksi DOM terhadap intervensi Google Translate / browser extensions
+        if (typeof Node === 'function' && Node.prototype) {
+          var origInsertBefore = Node.prototype.insertBefore;
+          Node.prototype.insertBefore = function (newNode, referenceNode) {
+            if (referenceNode && referenceNode.parentNode !== this) {
+              if (referenceNode.parentNode) {
+                return origInsertBefore.call(referenceNode.parentNode, newNode, referenceNode);
+              }
+              return origInsertBefore.call(this, newNode, null);
+            }
+            return origInsertBefore.call(this, newNode, referenceNode);
+          };
+
+          var origRemoveChild = Node.prototype.removeChild;
+          Node.prototype.removeChild = function (child) {
+            if (child && child.parentNode !== this) {
+              if (child.parentNode) {
+                return origRemoveChild.call(child.parentNode, child);
+              }
+              return child;
+            }
+            return origRemoveChild.call(this, child);
+          };
+
+          var origReplaceChild = Node.prototype.replaceChild;
+          Node.prototype.replaceChild = function (newChild, oldChild) {
+            if (oldChild && oldChild.parentNode !== this) {
+              if (oldChild.parentNode) {
+                return origReplaceChild.call(oldChild.parentNode, newChild, oldChild);
+              }
+              this.appendChild(newChild);
+              return oldChild;
+            }
+            return origReplaceChild.call(this, newChild, oldChild);
+          };
+        }
+
         try {
           var saved = localStorage.getItem('rkm-theme');
           var theme = saved === 'light' || saved === 'dark'
@@ -19,8 +56,8 @@
       })();
     </script>
   </head>
-  <body class="min-h-screen">
-    <div id="root"></div>
+  <body class="min-h-screen notranslate" translate="no">
+    <div id="root" class="notranslate" translate="no"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
