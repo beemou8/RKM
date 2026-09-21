@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { queryLocal, getDbStatus } from '../lib/db.js';
-import { fetchSupabase, insertSupabase, updateSupabase, deleteSupabase, upsertManySupabase } from '../lib/supabase.js';
+import { fetchSupabase, fetchSupabaseAll, insertSupabase, updateSupabase, deleteSupabase, upsertManySupabase } from '../lib/supabase.js';
 import { resolveCabang } from '../lib/cabang.js';
 import { sendWorkbook, styleHeaderRow, thinBorder } from '../lib/excel.js';
 
@@ -398,7 +398,7 @@ memberParetoRouter.get('/monitoring', async (req, res) => {
     if (plu && plu !== 'semua' && plu !== 'all') query += `&prd_prdcd=eq.${encodeURIComponent(plu)}`;
     query += '&order=username.asc,nama_member.asc,prd_prdcd.asc';
 
-    const rows = await fetchSupabase<any>(query).catch(() => []);
+    const rows = await fetchSupabaseAll<any>(query, { pageSize: 1000, maxRows: 50000 }).catch(() => []);
 
     const totals = {
       total: rows.length,
@@ -511,7 +511,7 @@ memberParetoRouter.get('/export', async (req, res) => {
       if (plu && plu !== 'semua' && plu !== 'all') queryStr += `&prd_prdcd=eq.${encodeURIComponent(plu)}`;
       queryStr += '&order=username.asc,nama_member.asc';
 
-      const rows = await fetchSupabase<any>(queryStr).catch(() => []);
+      const rows = await fetchSupabaseAll<any>(queryStr, { pageSize: 1000, maxRows: 50000 }).catch(() => []);
 
       ws.columns = [
         { header: 'No', key: 'no', width: 6 },

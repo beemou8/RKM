@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { fetchSupabase, fetchSupabaseAllCached, fetchSupabaseCached } from '../lib/supabase.js';
+import { fetchSupabase, fetchSupabaseAll, fetchSupabaseAllCached, fetchSupabaseCached } from '../lib/supabase.js';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
 import { buildMemberData } from './member.js';
@@ -1514,7 +1514,7 @@ dashboardRouter.get('/spv', async (req, res) => {
       visitQuery += `&username=eq.${encodeURIComponent(spvFilter)}`;
     }
 
-    const rawKunjungan = await fetchSupabase<any>(visitQuery).catch(() => []);
+    const rawKunjungan = await fetchSupabaseAll<any>(visitQuery, { pageSize: 1000, maxRows: 50000 }).catch(() => []);
 
     // 3. Ambil RPH dari DB lokal jika ada yang berhasil order
     const orderMembers = new Set<string>();
@@ -1717,7 +1717,7 @@ dashboardRouter.get('/spv/export', async (req, res) => {
       visitQuery += `&username=eq.${encodeURIComponent(spvFilter)}`;
     }
 
-    const rawKunjungan = await fetchSupabase<any>(visitQuery).catch(() => []);
+    const rawKunjungan = await fetchSupabaseAll<any>(visitQuery, { pageSize: 1000, maxRows: 50000 }).catch(() => []);
 
     const allUsers = await fetchSupabaseCached<any>(
       `tbmaster_user?select=username,nama_lengkap,role,cabang,is_active`,

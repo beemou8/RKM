@@ -47,13 +47,22 @@ async function purgeJadwalForBlockedStores(): Promise<number> {
   const blocked = await getBlockedMemberCodes();
   if (blocked.size === 0) return 0;
   const hariIni = new Date().toISOString().slice(0, 10);
-  const codes = Array.from(blocked).join(',');
-  const existing = await fetchSupabase<any>(
-    `tbtr_jadwal_bulanan?select=id&kode_member=in.(${codes})&tanggal_jadwal=gte.${hariIni}`
-  ).catch(() => []);
-  if (existing.length === 0) return 0;
-  await deleteSupabase('tbtr_jadwal_bulanan', `kode_member=in.(${codes})&tanggal_jadwal=gte.${hariIni}`);
-  return existing.length;
+  const codesArray = Array.from(blocked);
+  const chunkSize = 100;
+  let totalDeleted = 0;
+
+  for (let i = 0; i < codesArray.length; i += chunkSize) {
+    const chunk = codesArray.slice(i, i + chunkSize);
+    const codes = chunk.map((c) => `"${c}"`).join(',');
+    const existing = await fetchSupabase<any>(
+      `tbtr_jadwal_bulanan?select=id&kode_member=in.(${codes})&tanggal_jadwal=gte.${hariIni}`
+    ).catch(() => []);
+    if (existing && existing.length > 0) {
+      await deleteSupabase('tbtr_jadwal_bulanan', `kode_member=in.(${codes})&tanggal_jadwal=gte.${hariIni}`).catch(() => {});
+      totalDeleted += existing.length;
+    }
+  }
+  return totalDeleted;
 }
 
 scheduleRouter.get('/advisors', async (req, res) => {

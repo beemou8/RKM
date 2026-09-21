@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { fetchSupabase } from '../lib/supabase.js';
+import { fetchSupabaseAll } from '../lib/supabase.js';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
 
@@ -28,20 +28,12 @@ async function fetchAllVisits(cabang: string, source: MemberStatusSource, petuga
   }
 
   const table = sourceTable(source);
-  const rows: any[] = [];
-  const pageSize = 1000;
-  const maxRows = 5000;
+  let q = `${table}?select=${MEMBER_STATUS_SELECT}&cabang=eq.${encodeURIComponent(cabang)}` +
+    `&kode_member=not.is.null&order=created_at.desc.nullslast`;
+  if (source === 'by_call') q += '&berhasil_order=eq.true';
+  if (petugas) q += `&username=eq.${encodeURIComponent(petugas)}`;
 
-  for (let offset = 0; offset < maxRows; offset += pageSize) {
-    let q = `${table}?select=${MEMBER_STATUS_SELECT}&cabang=eq.${encodeURIComponent(cabang)}` +
-      `&kode_member=not.is.null&order=created_at.desc.nullslast&limit=${pageSize}&offset=${offset}`;
-    if (source === 'by_call') q += '&berhasil_order=eq.true';
-    if (petugas) q += `&username=eq.${encodeURIComponent(petugas)}`;
-
-    const page = await fetchSupabase<any>(q).catch(() => []);
-    rows.push(...page);
-    if (page.length < pageSize) break;
-  }
+  const rows = await fetchSupabaseAll<any>(q, { pageSize: 1000, maxRows: 10000 }).catch(() => []);
 
   memberVisitsCache.set(cacheKey, { expiresAt: now + 45_000, visits: rows });
   return rows;

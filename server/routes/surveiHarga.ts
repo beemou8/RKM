@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { fetchSupabase } from '../lib/supabase.js';
+import { fetchSupabaseAll } from '../lib/supabase.js';
 import { queryLocal } from '../lib/db.js';
 import { FILL, sendWorkbook, styleHeaderRow, thinBorder } from '../lib/excel.js';
 
@@ -93,9 +93,11 @@ async function buildSurveiHargaData(params: BuildParams) {
   if (tglDari) headerQuery.set('tanggal_struk', `gte.${tglDari}`);
   if (tglSampai) headerQuery.append('tanggal_struk', `lte.${tglSampai}`);
   headerQuery.set('order', 'tanggal_struk.desc,created_at.desc,id.desc');
-  headerQuery.set('limit', '2500');
 
-  const baseHeaders = await fetchSupabase<SurveiHeaderRow>(`tbtr_survei_header?${headerQuery.toString()}`);
+  const baseHeaders = await fetchSupabaseAll<SurveiHeaderRow>(`tbtr_survei_header?${headerQuery.toString()}`, {
+    pageSize: 1000,
+    maxRows: 50000,
+  });
 
   const users = Array.from(
     new Set(baseHeaders.map((h) => String(h.nama_user || '').trim()).filter(Boolean))
@@ -126,7 +128,10 @@ async function buildSurveiHargaData(params: BuildParams) {
         detailQuery.set('select', 'id,header_id,plu,nama_barang,harga,frac');
         detailQuery.set('header_id', `in.(${ids.join(',')})`);
         detailQuery.set('order', 'header_id.asc,id.asc');
-        return fetchSupabase<SurveiDetailRow>(`tbtr_survei_detail?${detailQuery.toString()}`);
+        return fetchSupabaseAll<SurveiDetailRow>(`tbtr_survei_detail?${detailQuery.toString()}`, {
+          pageSize: 1000,
+          maxRows: 10000,
+        });
       })
     );
     details = results.flat();
