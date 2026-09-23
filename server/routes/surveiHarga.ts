@@ -77,13 +77,11 @@ function sortHistoryDesc(a: any, b: any) {
 }
 
 async function buildSurveiHargaData(params: BuildParams) {
-  const cabang = String(params.cabang || '').trim();
+  const cabang = String(params.cabang || '2T').trim() || '2T';
   const petugas = String(params.petugas || '').trim();
   const kompetitor = String(params.kompetitor || '').trim();
   const tglDari = cleanDate(params.tglDari);
   const tglSampai = cleanDate(params.tglSampai);
-
-  if (!cabang) throw new Error('Cabang wajib diisi.');
 
   // Ambil header berdasarkan cabang + periode terlebih dahulu agar daftar
   // penginput dan kompetitor tetap tersedia saat salah satu filter dipilih.
@@ -97,6 +95,9 @@ async function buildSurveiHargaData(params: BuildParams) {
   const baseHeaders = await fetchSupabaseAll<SurveiHeaderRow>(`tbtr_survei_header?${headerQuery.toString()}`, {
     pageSize: 1000,
     maxRows: 50000,
+  }).catch((err) => {
+    console.error('[survei-harga] Gagal memuat header survei:', err.message);
+    return [];
   });
 
   const users = Array.from(
@@ -131,6 +132,9 @@ async function buildSurveiHargaData(params: BuildParams) {
         return fetchSupabaseAll<SurveiDetailRow>(`tbtr_survei_detail?${detailQuery.toString()}`, {
           pageSize: 1000,
           maxRows: 10000,
+        }).catch((err) => {
+          console.error('[survei-harga] Gagal memuat batch detail:', err.message);
+          return [];
         });
       })
     );
@@ -163,7 +167,10 @@ async function buildSurveiHargaData(params: BuildParams) {
           AND p.prd_recordid IS NULL
       `,
       [uniquePlus]
-    );
+    ).catch((err) => {
+      console.warn('[survei-harga] DB lokal tidak terjangkau / offline, harga pembanding master dilewati:', err.message);
+      return [];
+    });
   }
 
   const productMap = new Map<string, {

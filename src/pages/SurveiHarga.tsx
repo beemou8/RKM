@@ -105,6 +105,7 @@ export default function SurveiHarga() {
   const [pageSizeStruk, setPageSizeStruk] = useState(25);
 
   useEffect(() => {
+    if (!cabang) return;
     let mounted = true;
     setLoading(true);
     setError(null);
