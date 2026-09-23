@@ -44,8 +44,8 @@ export async function getBlockedMemberCodes(): Promise<Set<string>> {
  *  cara apa pun (termasuk yang sempat lolos sebelum perbaikan ini) tetap
  *  langsung hilang dari jadwal — bukan cuma dicegah masuk jadwal baru. */
 async function purgeJadwalForBlockedStores(): Promise<number> {
-  const blocked = await getBlockedMemberCodes();
-  if (blocked.size === 0) return 0;
+  const blocked = await getBlockedMemberCodes().catch(() => new Set<string>());
+  if (!blocked || blocked.size === 0) return 0;
   const hariIni = new Date().toISOString().slice(0, 10);
   const codesArray = Array.from(blocked);
   const chunkSize = 100;
@@ -53,7 +53,7 @@ async function purgeJadwalForBlockedStores(): Promise<number> {
 
   for (let i = 0; i < codesArray.length; i += chunkSize) {
     const chunk = codesArray.slice(i, i + chunkSize);
-    const codes = chunk.map((c) => `"${c}"`).join(',');
+    const codes = chunk.map((c) => encodeURIComponent(c)).join(',');
     const existing = await fetchSupabase<any>(
       `tbtr_jadwal_bulanan?select=id&kode_member=in.(${codes})&tanggal_jadwal=gte.${hariIni}`
     ).catch(() => []);
@@ -529,7 +529,7 @@ scheduleRouter.post('/push', async (req, res) => {
       return;
     }
 
-    const blockedCodes = await getBlockedMemberCodes();
+    const blockedCodes = await getBlockedMemberCodes().catch(() => new Set<string>());
     const blocked = items.filter((it) => blockedCodes.has(String(it.kode_member || '').trim().toUpperCase()));
     if (blocked.length > 0) {
       res.status(400).json({
@@ -542,7 +542,7 @@ scheduleRouter.post('/push', async (req, res) => {
 
     const replaceIds = items.map((it) => it.replace_id).filter((id): id is number => !!id);
     for (const id of replaceIds) {
-      await deleteSupabase('tbtr_jadwal_bulanan', `id=eq.${id}`);
+      await deleteSupabase('tbtr_jadwal_bulanan', `id=eq.${id}`).catch(() => {});
     }
 
     // Jangan hanya percaya flag dari frontend. Untuk input manual/replacement,
@@ -553,7 +553,7 @@ scheduleRouter.post('/push', async (req, res) => {
     await Promise.all(periodKeys.map(async (key) => {
       const [cab, ym] = key.split('|');
       const [y, m] = ym.split('-').map(Number);
-      const rows = await getMemberPilihanPeriode(cab, y, m);
+      const rows = await getMemberPilihanPeriode(cab, y, m).catch(() => []);
       pilihanByPeriod.set(key, new Set(rows.map((r) => normCode(r.kode_member))));
     }));
 
@@ -573,9 +573,14 @@ scheduleRouter.post('/push', async (req, res) => {
       };
     });
 
-    await insertManySupabase('tbtr_jadwal_bulanan', payload);
+    for (let i = 0; i < payload.length; i += 100) {
+      const chunk = payload.slice(i, i + 100);
+      await insertManySupabase('tbtr_jadwal_bulanan', chunk);
+    }
+
     res.json({ success: true, count: payload.length, replaced: replaceIds.length });
   } catch (err: any) {
+    console.error('Error in /api/schedule/push:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -66,6 +66,9 @@ async function doFetch(url: string, init: RequestInit = {}) {
 export async function fetchSupabase<T = any>(query: string): Promise<T[]> {
   assertConfig();
   const res = await doFetch(`${API_BASE_URL}/rest/v1/${query}`, { headers: headers() });
+  if (res.status === 416) {
+    return [] as T[];
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`Supabase GET gagal (${res.status}): ${body || res.statusText}`);
@@ -126,6 +129,9 @@ export async function fetchSupabaseAll<T = any>(
     const res = await doFetch(`${API_BASE_URL}/rest/v1/${query}`, {
       headers: headers({ Range: `${start}-${end}`, 'Range-Unit': 'items' }),
     });
+    if (res.status === 416) {
+      return [] as T[];
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`Supabase GET paginated gagal (${res.status}): ${body || res.statusText}`);
@@ -150,6 +156,7 @@ export async function fetchSupabaseAll<T = any>(
   const probe = await doFetch(`${API_BASE_URL}/rest/v1/${query}`, {
     headers: headers({ Range: `${maxRows}-${maxRows}`, 'Range-Unit': 'items' }),
   });
+  if (probe.status === 416) return out;
   if (probe.ok) {
     const extra = (await probe.json()) as T[];
     if (extra.length === 0) return out;
