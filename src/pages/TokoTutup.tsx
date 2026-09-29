@@ -29,7 +29,6 @@ export default function TokoTutup() {
     deskripsi: '',
   });
 
-  // Debounce search agar menembak SQL query baru ke server setelah berhenti mengetik
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchInput.trim());
@@ -54,6 +53,12 @@ export default function TokoTutup() {
   };
 
   useEffect(() => {
+    setSearchInput('');
+    setDebouncedSearch('');
+    setPage(1);
+  }, [cabang]);
+
+  useEffect(() => {
     load(debouncedSearch);
   }, [cabang, debouncedSearch]);
 
@@ -76,7 +81,7 @@ export default function TokoTutup() {
       setForm({ username: '', nama_toko: '', kode_member: '', status: 'Tutup', keterangan_lainnya: '', deskripsi: '' });
       load();
       if (r.jadwal_dihapus > 0) {
-        alert(`Toko berhasil diblokir. ${r.jadwal_dihapus} jadwal yang sudah terlanjur dibuat untuk toko ini (hari ini & ke depan) otomatis dihapus.`);
+        alert(`Toko berhasil diblokir. ${r.jadwal_dihapus} jadwal yang sudah dibuat untuk toko ini (hari ini & ke depan) otomatis dihapus.`);
       }
     } catch (err: any) {
       alert('Gagal menyimpan: ' + err.message);
@@ -113,7 +118,7 @@ export default function TokoTutup() {
             <p className="text-xs text-[var(--text-muted)] mt-1">
               Cabang <span className="text-amber-400 font-semibold">{cabang}</span> &middot; Toko yang{' '}
               <span className="text-rose-400 font-semibold">terdaftar di sini otomatis diblokir</span> dari penjadwalan (generate
-              maupun input manual) — apapun isi status-nya. Hapus datanya untuk membuka blokir.
+              maupun input manual). Hapus datanya untuk membuka blokir.
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -160,7 +165,11 @@ export default function TokoTutup() {
             {searchInput && (
               <button
                 type="button"
-                onClick={() => setSearchInput('')}
+                onClick={() => {
+                  setSearchInput('');
+                  setDebouncedSearch('');
+                  setPage(1);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                 title="Hapus pencarian"
               >
@@ -239,7 +248,7 @@ export default function TokoTutup() {
                   <td colSpan={7}>
                     <EmptyState
                       icon={Search}
-                      text={`Halaman kosong.`}
+                      text="Halaman kosong."
                     />
                   </td>
                 </tr>
