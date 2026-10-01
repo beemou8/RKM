@@ -250,6 +250,7 @@ async function buildDashboard(
                 ON P.NO_PB = H.OBI_NOPB
          WHERE C.CUS_KODEIGR = $1 AND H.OBI_KDMEMBER = ANY($2::text[])
            AND H.OBI_TGLPB BETWEEN $3 AND $4
+           AND (H.OBI_RECID IS NULL OR UPPER(H.OBI_RECID) NOT LIKE '%B%')
          GROUP BY H.OBI_KDMEMBER, C.CUS_NAMAMEMBER`,
         [cabang, Array.from(kdOrderList), `${tglKemarin} 00:00:00`, `${tglSampai} 23:59:59`]
       );
@@ -623,6 +624,7 @@ dashboardRouter.get('/export-bulanan', async (req, res) => {
                     ON P.NO_PB = H.OBI_NOPB
              WHERE C.CUS_KODEIGR = $1 AND H.OBI_KDMEMBER = ANY($2::text[])
                AND H.OBI_TGLPB BETWEEN $3 AND $4
+               AND (H.OBI_RECID IS NULL OR UPPER(H.OBI_RECID) NOT LIKE '%B%')
              GROUP BY H.OBI_KDMEMBER, DATE(H.OBI_TGLPB)`,
             [cabang, kodeList, `${tglAwalMinus1} 00:00:00`, `${tglAkhir} 23:59:59`]
           );
@@ -746,6 +748,7 @@ dashboardRouter.get('/export-bulanan', async (req, res) => {
                   ON P.NO_PB = H.OBI_NOPB
            WHERE C.CUS_KODEIGR = $1 AND H.OBI_KDMEMBER = ANY($2::text[])
              AND H.OBI_TGLPB BETWEEN $3 AND $4
+             AND (H.OBI_RECID IS NULL OR UPPER(H.OBI_RECID) NOT LIKE '%B%')
            GROUP BY H.OBI_KDMEMBER, DATE(H.OBI_TGLPB)`,
           [cabang, kdList, `${tglAwalMinus1Str} 00:00:00`, `${tglAkhir} 23:59:59`]
         );
@@ -1539,6 +1542,7 @@ dashboardRouter.get('/spv', async (req, res) => {
                   ON P.NO_PB = H.OBI_NOPB
            WHERE C.CUS_KODEIGR = $1 AND H.OBI_KDMEMBER = ANY($2::text[])
              AND H.OBI_TGLPB BETWEEN $3 AND $4
+             AND (H.OBI_RECID IS NULL OR UPPER(H.OBI_RECID) NOT LIKE '%B%')
            GROUP BY H.OBI_KDMEMBER, C.CUS_NAMAMEMBER`,
           [cabang, Array.from(orderMembers), `${tglKemarin} 00:00:00`, `${tglSampai} 23:59:59`]
         );
