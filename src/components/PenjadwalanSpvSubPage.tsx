@@ -537,7 +537,7 @@ export default function PenjadwalanSpvSubPage({ cabang }: PenjadwalanSpvSubPageP
                 previewLine.length > 1 && (
                   <Polyline
                     positions={previewLine}
-                    pathOptions={{ color: routeColor, weight: 3, opacity: 0.7, dashArray: '6, 6' }}
+                    pathOptions={{ color: routeColor, weight: 3, opacity: 0.7 }}
                   />
                 )
               )}

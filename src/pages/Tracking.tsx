@@ -461,7 +461,6 @@ export default function Tracking() {
                             opacity: tripRouteLoading ? 0.4 : 0.85,
                             lineCap: 'round',
                             lineJoin: 'round',
-                            ...(tripRouteSnapped ? {} : tripTrail.length > 1 ? { dashArray: '1, 8' } : {}),
                           }}
                         />
                         
