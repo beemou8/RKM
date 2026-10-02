@@ -62,12 +62,41 @@ export function pinIcon(color: string, size = 28) {
   });
 }
 
-// Public OSRM demo server — free, no API key. Fine for the moderate number of
-// waypoints these routes have; falls back to the straight-line path on any
-// error so the map never breaks if the service is unreachable.
-const OSRM_ROUTE_URL = 'https://router.project-osrm.org/route/v1/driving/';
+// Public OSRM demo servers — free, no API key.
+// Includes primary and fallback servers so the road geometry never drops
+// to straight lines during temporary rate-limiting or downtime.
+const OSRM_ROUTE_SERVERS = [
+  'https://router.project-osrm.org/route/v1/driving/',
+  'https://routing.openstreetmap.de/routed-car/route/v1/driving/',
+];
 const OSRM_MATCH_URL = 'https://router.project-osrm.org/match/v1/driving/';
 const ROAD_ROUTE_CACHE = new Map<string, { route: [number, number][]; distanceM: number }>();
+
+function distanceBetweenM(p1: [number, number], p2: [number, number]): number {
+  const R = 6371000;
+  const dLat = ((p2[0] - p1[0]) * Math.PI) / 180;
+  const dLng = ((p2[1] - p1[1]) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 + Math.cos((p1[0] * Math.PI) / 180) * Math.cos((p2[0] * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Filters out invalid coordinates and stationary noise (<25m from previous point),
+ *  keeping actual movement waypoints plus first and last. */
+function filterMeaningfulPoints(points: [number, number][], minDistanceM = 25): [number, number][] {
+  const valid = points.filter(
+    (p) => p && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) > 0.1 && Math.abs(p[1]) > 0.1
+  );
+  if (valid.length <= 2) return valid;
+  const out: [number, number][] = [valid[0]];
+  for (let i = 1; i < valid.length - 1; i++) {
+    if (distanceBetweenM(out[out.length - 1], valid[i]) >= minDistanceM) {
+      out.push(valid[i]);
+    }
+  }
+  out.push(valid[valid.length - 1]);
+  return out;
+}
 
 /** Straight-line (haversine) distance in meters, summed across consecutive
  *  points — used as the fallback when OSRM can't be reached. */
@@ -102,8 +131,9 @@ function useRoadGeometry(
   mode: 'route' | 'match',
   maxPoints: number
 ): { route: [number, number][]; loading: boolean; snapped: boolean; distanceKm: number } {
-  const trimmed = mode === 'match' ? downsample(points, maxPoints) : points;
-  const key = trimmed.length > 1 ? `${mode}:${trimmed.map((p) => p.join(',')).join(';')}` : '';
+  const cleaned = filterMeaningfulPoints(points, mode === 'match' ? 30 : 5);
+  const trimmed = downsample(cleaned, Math.min(maxPoints, 70));
+  const key = trimmed.length > 1 ? `${mode}:${trimmed.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(';')}` : '';
   const fallbackDistanceM = points.length > 1 ? haversineDistance(points) : 0;
   const [state, setState] = useState<{ key: string; route: [number, number][]; loading: boolean; snapped: boolean; distanceM: number }>(
     { key: '', route: points, loading: false, snapped: false, distanceM: fallbackDistanceM }
@@ -121,33 +151,59 @@ function useRoadGeometry(
       return;
     }
 
-    // OSRM's public demo instance caps requests around ~100 coordinates;
-    // beyond that just keep the straight-line preview rather than failing.
-    if (trimmed.length > maxPoints) {
-      setState({ key, route: points, loading: false, snapped: false, distanceM: fallbackDistanceM });
-      return;
-    }
-
     let cancelled = false;
     setState({ key, route: points, loading: true, snapped: false, distanceM: fallbackDistanceM });
 
     const coords = trimmed.map(([lat, lng]) => `${lng},${lat}`).join(';');
-    const url =
-      mode === 'route'
-        ? `${OSRM_ROUTE_URL}${coords}?overview=full&geometries=geojson`
-        : `${OSRM_MATCH_URL}${coords}?overview=full&geometries=geojson&gaps=split&radiuses=${trimmed.map(() => 40).join(';')}`;
 
-    fetch(url)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`OSRM ${r.status}`))))
-      .then((data) => {
+    async function fetchRoadGeometry() {
+      // 1. In match mode, try OSRM map-matching first
+      if (mode === 'match') {
+        try {
+          const matchUrl = `${OSRM_MATCH_URL}${coords}?overview=full&geometries=geojson&gaps=split&radiuses=${trimmed.map(() => 50).join(';')}`;
+          const res = await fetch(matchUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const coordsGeo: [number, number][] | undefined = data?.matchings?.[0]?.geometry?.coordinates;
+            if (coordsGeo && coordsGeo.length > 1) {
+              const road = coordsGeo.map(([lng, lat]) => [lat, lng] as [number, number]);
+              const distanceM = typeof data?.matchings?.[0]?.distance === 'number' ? data.matchings[0].distance : fallbackDistanceM;
+              return { road, distanceM };
+            }
+          }
+        } catch {
+          // match failed or returned NoMatch/TooBig -> proceed to route fallback
+        }
+      }
+
+      // 2. Route mode OR fallback from match: calculate driving path along road network
+      for (const server of OSRM_ROUTE_SERVERS) {
+        try {
+          const routeUrl = `${server}${coords}?overview=full&geometries=geojson`;
+          const res = await fetch(routeUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const coordsGeo: [number, number][] | undefined = data?.routes?.[0]?.geometry?.coordinates;
+            if (coordsGeo && coordsGeo.length > 1) {
+              const road = coordsGeo.map(([lng, lat]) => [lat, lng] as [number, number]);
+              const distanceM = typeof data?.routes?.[0]?.distance === 'number' ? data.routes[0].distance : fallbackDistanceM;
+              return { road, distanceM };
+            }
+          }
+        } catch {
+          // Try next server
+        }
+      }
+
+      return null;
+    }
+
+    fetchRoadGeometry()
+      .then((res) => {
         if (cancelled) return;
-        const picked = mode === 'route' ? data?.routes?.[0] : data?.matchings?.[0];
-        const coordsGeo: [number, number][] | undefined = picked?.geometry?.coordinates;
-        if (coordsGeo && coordsGeo.length > 1) {
-          const road = coordsGeo.map(([lng, lat]) => [lat, lng] as [number, number]);
-          const distanceM: number = typeof picked?.distance === 'number' ? picked.distance : fallbackDistanceM;
-          ROAD_ROUTE_CACHE.set(key, { route: road, distanceM });
-          setState({ key, route: road, loading: false, snapped: true, distanceM });
+        if (res && res.road.length > 1) {
+          ROAD_ROUTE_CACHE.set(key, { route: res.road, distanceM: res.distanceM });
+          setState({ key, route: res.road, loading: false, snapped: true, distanceM: res.distanceM });
         } else {
           setState({ key, route: points, loading: false, snapped: false, distanceM: fallbackDistanceM });
         }
