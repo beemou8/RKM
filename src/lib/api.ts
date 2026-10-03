@@ -147,6 +147,7 @@ export function fetchScheduleGenerate(params: {
   tglSampai: string;
   cabang: string;
   maksPerHari?: string;
+  maksKm?: string;
 }): Promise<ScheduleResponse> {
   const q = new URLSearchParams({
     bulan: params.bulan,
@@ -157,6 +158,7 @@ export function fetchScheduleGenerate(params: {
     ...(params.tglDari ? { tgl_dari: params.tglDari } : {}),
     ...(params.tglSampai ? { tgl_sampai: params.tglSampai } : {}),
     ...(params.maksPerHari ? { maks_per_hari: params.maksPerHari } : {}),
+    ...(params.maksKm ? { maks_km: params.maksKm } : {}),
   });
   return getJson(`/api/schedule/generate?${q}`);
 }

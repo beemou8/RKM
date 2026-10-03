@@ -157,8 +157,9 @@ async function generateMatrix(params: {
   tglSampai: string;
   cabang: string;
   maksPerHari: number;
+  maksKm?: number;
 }) {
-  const { bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari } = params;
+  const { bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari, maksKm } = params;
   const modeFull = mode === 'full';
   const bulanNum = parseInt(bulan, 10);
   const jumlahHari = daysInMonth(bulanNum, tahun);
@@ -441,8 +442,8 @@ async function generateMatrix(params: {
 
       while (slots > 0 && poolToko.length > 0) {
         let idx = 0;
+        let best = Number.POSITIVE_INFINITY;
         if (anchors.length > 0) {
-          let best = Number.POSITIVE_INFINITY;
           for (let i = 0; i < poolToko.length; i++) {
             const d = nearestAnchorKm(poolToko[i], anchors);
             if (d < best) {
@@ -450,6 +451,9 @@ async function generateMatrix(params: {
               idx = i;
             }
           }
+        }
+        if (maksKm && Number.isFinite(maksKm) && maksKm > 0 && anchors.length > 0 && best > maksKm) {
+          break;
         }
         const next = poolToko.splice(idx, 1)[0];
         regular.push({ ...next, member_pilihan: false });
@@ -459,8 +463,24 @@ async function generateMatrix(params: {
 
       const generatedDay = routeSort([...special, ...regular], existingAnchors.get(currentDate) || []);
       if (generatedDay.length > 0) {
+        let dayTotalKm = 0;
+        let dayMaxRadiusKm = 0;
+        for (let i = 0; i < generatedDay.length; i++) {
+          if (i > 0) {
+            dayTotalKm += distanceKm(generatedDay[i - 1].lat, generatedDay[i - 1].lng, generatedDay[i].lat, generatedDay[i].lng);
+          }
+          for (let j = i + 1; j < generatedDay.length; j++) {
+            const d = distanceKm(generatedDay[i].lat, generatedDay[i].lng, generatedDay[j].lat, generatedDay[j].lng);
+            if (d > dayMaxRadiusKm) dayMaxRadiusKm = d;
+          }
+        }
         matrix[u] = matrix[u] || [];
-        matrix[u].push({ tanggal: currentDate, toko: generatedDay });
+        matrix[u].push({
+          tanggal: currentDate,
+          toko: generatedDay,
+          total_km: Math.round(dayTotalKm * 10) / 10,
+          max_radius_km: Math.round(dayMaxRadiusKm * 10) / 10,
+        });
       }
     }
 
@@ -502,7 +522,10 @@ scheduleRouter.get('/generate', async (req, res) => {
       ? Math.min(Math.max(maksPerHariRaw, MAKS_PER_HARI_MIN), MAKS_PER_HARI_MAX)
       : MAX_PER_DAY;
 
-    const result = await generateMatrix({ bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari });
+    const maksKmRaw = parseFloat((req.query.maks_km as string) || '');
+    const maksKm = Number.isFinite(maksKmRaw) && maksKmRaw > 0 ? maksKmRaw : undefined;
+
+    const result = await generateMatrix({ bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari, maksKm });
     res.json({ ...result, db_lokal_connected: getDbStatus().connected });
   } catch (err: any) {
     res.status(500).json({ error: err.message, db_lokal_connected: false });

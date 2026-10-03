@@ -14,6 +14,7 @@ import {
   CalendarX2,
   ClipboardList,
   PackageCheck,
+  Compass,
 } from 'lucide-react';
 import { fetchDbStatus, fetchCabangList } from '../lib/api';
 import type { DbStatus } from '../types';
@@ -36,6 +37,7 @@ const NAV_GROUPS: Array<{
     label: 'Penjadwalan',
     items: [
       { to: '/penjadwalan', label: 'Penjadwalan', icon: Route },
+      { to: '/penjadwalan-radius', label: 'Penjadwalan (Radius Km)', icon: Compass },
       { to: '/jadwal-aktif', label: 'Jadwal Aktif', icon: CalendarCheck2 },
       { to: '/jadwal-belum-terkunjungi', label: 'Jadwal Member Belum Terkunjungi', icon: CalendarX2 },
       { to: '/toko-tutup', label: 'Toko Tutup', icon: Store },

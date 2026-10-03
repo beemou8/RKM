@@ -69,6 +69,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const DashboardByCall = lazy(() => import('./pages/DashboardByCall'));
 const Tracking = lazy(() => import('./pages/Tracking'));
 const Penjadwalan = lazy(() => import('./pages/Penjadwalan'));
+const PenjadwalanRadius = lazy(() => import('./pages/PenjadwalanRadius'));
 const JadwalAktif = lazy(() => import('./pages/JadwalAktif'));
 const JadwalBelumTerkunjungi = lazy(() => import('./pages/JadwalBelumTerkunjungi'));
 const MemberBaru = lazy(() => import('./pages/MemberBaru'));
@@ -99,6 +100,7 @@ export default function App() {
               <Route path="tracking" element={<Tracking />} />
               <Route path="survei-harga" element={<SurveiHarga />} />
               <Route path="penjadwalan" element={<Penjadwalan />} />
+              <Route path="penjadwalan-radius" element={<PenjadwalanRadius />} />
               <Route path="jadwal-aktif" element={<JadwalAktif />} />
               <Route path="jadwal-belum-terkunjungi" element={<JadwalBelumTerkunjungi />} />
               <Route path="member-baru" element={<MemberBaru />} />
