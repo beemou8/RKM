@@ -629,6 +629,64 @@ scheduleRouter.get('/tikor-toko', async (req, res) => {
   }
 });
 
+scheduleRouter.post('/tikor-toko', async (req, res) => {
+  try {
+    const { cabang, nama_toko, latitude, longitude, koordinat } = req.body;
+    if (!cabang || latitude === undefined || longitude === undefined) {
+      res.status(400).json({ error: 'Field cabang, latitude, dan longitude wajib diisi.' });
+      return;
+    }
+
+    const cleanCabang = String(cabang).trim().toUpperCase();
+    const latNum = parseFloat(String(latitude));
+    const lngNum = parseFloat(String(longitude));
+    const coordStr = koordinat ? String(koordinat).trim() : `${latNum},${lngNum}`;
+    const storeName = String(nama_toko || `Cabang ${cleanCabang}`).trim();
+
+    // 1. Simpan / update ke Supabase Cloud
+    const existing = await fetchSupabase<any>(
+      `tbmaster_tikortoko?select=cabang&cabang=ilike.${encodeURIComponent(cleanCabang)}`
+    ).catch(() => []);
+
+    if (existing && existing.length > 0) {
+      await updateSupabase('tbmaster_tikortoko', `cabang=ilike.${encodeURIComponent(cleanCabang)}`, {
+        nama_toko: storeName,
+        latitude: latNum,
+        longitude: lngNum,
+        koordinat: coordStr,
+      });
+    } else {
+      await insertSupabase('tbmaster_tikortoko', {
+        cabang: cleanCabang,
+        nama_toko: storeName,
+        latitude: latNum,
+        longitude: lngNum,
+        koordinat: coordStr,
+      });
+    }
+
+    // 2. Jika di Postgres lokal ada tabel tbmaster_tikortoko, ikut simpan juga
+    await queryLocal(
+      `INSERT INTO tbmaster_tikortoko (cabang, nama_toko, latitude, longitude, koordinat)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (cabang) DO UPDATE
+       SET nama_toko = EXCLUDED.nama_toko,
+           latitude = EXCLUDED.latitude,
+           longitude = EXCLUDED.longitude,
+           koordinat = EXCLUDED.koordinat`,
+      [cleanCabang, storeName, latNum, lngNum, coordStr]
+    ).catch(() => {});
+
+    res.json({
+      success: true,
+      message: 'Berhasil menyimpan titik koordinat toko cabang',
+      data: { cabang: cleanCabang, nama_toko: storeName, lat: latNum, lng: lngNum, koordinat: coordStr },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 scheduleRouter.post('/push', async (req, res) => {
   try {
     const items: Array<{

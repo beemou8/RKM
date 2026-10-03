@@ -142,6 +142,23 @@ export function fetchTikorToko(cabang: string): Promise<{ success: boolean; data
   return getJson(`/api/schedule/tikor-toko?cabang=${encodeURIComponent(cabang)}`);
 }
 
+export async function saveTikorToko(payload: {
+  cabang: string;
+  nama_toko: string;
+  latitude: number;
+  longitude: number;
+  koordinat?: string;
+}): Promise<{ success: boolean; message: string; data: { cabang: string; nama_toko: string; lat: number; lng: number } }> {
+  const res = await fetch('/api/schedule/tikor-toko', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Gagal menyimpan titik koordinat toko cabang');
+  return body;
+}
+
 export function fetchScheduleGenerate(params: {
   bulan: string;
   tahun: string;

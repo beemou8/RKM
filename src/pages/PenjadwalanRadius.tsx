@@ -21,12 +21,15 @@ import {
   CheckCircle2,
   Star,
   Gauge,
+  MapPin,
+  Navigation,
 } from 'lucide-react';
 import L from 'leaflet';
 import {
   fetchScheduleAdvisors,
   fetchScheduleGenerate,
   fetchTikorToko,
+  saveTikorToko,
   pushSchedule,
   exportSchedule,
   downloadBlob,
@@ -49,6 +52,49 @@ import PenjadwalanSpvSubPage from '../components/PenjadwalanSpvSubPage';
 
 const now = new Date();
 
+function parseCoordinatesInput(input: string): { lat: number; lng: number } | null {
+  const str = input.trim();
+  if (!str) return null;
+
+  // 1. Cek format desimal biasa: -6.998194, 107.555972
+  const decMatch = str.match(/^(-?\d+(\.\d+)?)[,\s]+(-?\d+(\.\d+)?)$/);
+  if (decMatch) {
+    const lat = parseFloat(decMatch[1]);
+    const lng = parseFloat(decMatch[3]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  // 2. Cek format DMS: contoh 6°59'53.5"S 107°33'21.5"E
+  const dmsRegex = /(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([NSns])[,\s]+(\d+)[°\s]+(\d+)['\s]+([\d.]+)"?\s*([EWew])/;
+  const dmsMatch = str.match(dmsRegex);
+  if (dmsMatch) {
+    const latDeg = parseFloat(dmsMatch[1]);
+    const latMin = parseFloat(dmsMatch[2]);
+    const latSec = parseFloat(dmsMatch[3]);
+    const latDir = dmsMatch[4].toUpperCase();
+
+    const lngDeg = parseFloat(dmsMatch[5]);
+    const lngMin = parseFloat(dmsMatch[6]);
+    const lngSec = parseFloat(dmsMatch[7]);
+    const lngDir = dmsMatch[8].toUpperCase();
+
+    let lat = latDeg + latMin / 60 + latSec / 3600;
+    if (latDir === 'S') lat = -lat;
+
+    let lng = lngDeg + lngMin / 60 + lngSec / 3600;
+    if (lngDir === 'W') lng = -lng;
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return {
+        lat: Math.round(lat * 1000000) / 1000000,
+        lng: Math.round(lng * 1000000) / 1000000,
+      };
+    }
+  }
+
+  return null;
+}
+
 const storeBranchIcon = L.divIcon({
   className: 'branch-marker',
   html: `<div style="background:#10b981;color:#ffffff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid #ffffff;box-shadow:0 4px 10px rgba(0,0,0,0.4);cursor:pointer;" title="Pusat Toko Cabang">🏢</div>`,
@@ -64,6 +110,17 @@ export default function PenjadwalanRadius() {
   const routeColor = theme === 'light' ? '#2563eb' : '#60a5fa';
   const [advisorList, setAdvisorList] = useState<string[]>([]);
   const [tokoCabangInfo, setTokoCabangInfo] = useState<{ cabang: string; lat: number; lng: number; nama_toko?: string } | null>(null);
+
+  // State untuk Modal Input Titik Koordinat Cabang
+  const [showTikorModal, setShowTikorModal] = useState(false);
+  const [savingTikor, setSavingTikor] = useState(false);
+  const [tikorForm, setTikorForm] = useState({
+    nama_toko: 'SPI KATAPANG',
+    latitude: '-6.998194',
+    longitude: '107.555972',
+    rawInput: '',
+  });
+
   const [petugas, setPetugas] = useState('');
   const [tglDari, setTglDari] = useState('');
   const [tglSampai, setTglSampai] = useState('');
@@ -127,6 +184,59 @@ export default function PenjadwalanRadius() {
       })
       .catch(() => {});
   }, [cabang]);
+
+  useEffect(() => {
+    if (tokoCabangInfo) {
+      setTikorForm((prev) => ({
+        ...prev,
+        nama_toko: tokoCabangInfo.nama_toko || prev.nama_toko,
+        latitude: String(tokoCabangInfo.lat),
+        longitude: String(tokoCabangInfo.lng),
+      }));
+    }
+  }, [tokoCabangInfo]);
+
+  const handleConvertCoordinates = () => {
+    if (!tikorForm.rawInput.trim()) return;
+    const parsed = parseCoordinatesInput(tikorForm.rawInput);
+    if (parsed) {
+      setTikorForm((prev) => ({
+        ...prev,
+        latitude: String(parsed.lat),
+        longitude: String(parsed.lng),
+      }));
+    } else {
+      alert('Format koordinat tidak dikenali. Contoh: -6.998194, 107.555972 atau 6°59\'53.5"S 107°33\'21.5"E');
+    }
+  };
+
+  const handleSaveTikor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const lat = parseFloat(tikorForm.latitude);
+    const lng = parseFloat(tikorForm.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      alert('Koordinat latitude dan longitude harus berupa angka desimal valid!');
+      return;
+    }
+
+    setSavingTikor(true);
+    try {
+      const res = await saveTikorToko({
+        cabang,
+        nama_toko: tikorForm.nama_toko.trim() || `Cabang ${cabang}`,
+        latitude: lat,
+        longitude: lng,
+        koordinat: `${lat},${lng}`,
+      });
+      setTokoCabangInfo(res.data);
+      alert(`Berhasil menyimpan titik koordinat toko cabang ${cabang} (${res.data.nama_toko})!`);
+      setShowTikorModal(false);
+    } catch (err: any) {
+      alert('Gagal menyimpan titik koordinat: ' + err.message);
+    } finally {
+      setSavingTikor(false);
+    }
+  };
 
   const runGenerate = (mode: string) => {
     setLoading(true);
@@ -521,12 +631,21 @@ export default function PenjadwalanRadius() {
             {' '}&middot; Atur batas maksimal kilometer antar titik toko per hari agar rute kunjungan advisor tidak terpencar terlalu jauh.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <Link to="/toko-tutup">
             <Button variant="ghost">
               <List className="w-3.5 h-3.5" /> List Toko Tutup
             </Button>
           </Link>
+          <Button
+            variant="secondary"
+            onClick={() => setShowTikorModal(true)}
+            className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+            title="Kelola Titik Koordinat Toko Cabang"
+          >
+            <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+            {tokoCabangInfo ? `Tikor: ${tokoCabangInfo.nama_toko || cabang}` : 'Atur Tikor Cabang'}
+          </Button>
           <Button variant="primary" onClick={() => setShowPilihanModal(true)}>
             <Star className="w-3.5 h-3.5" /> Upload Member Pilihan
           </Button>
@@ -737,9 +856,18 @@ export default function PenjadwalanRadius() {
       )}
       {filterInfo && (
         <Card className={`p-3 ${tokoCabangInfo ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
-          <p className={`text-sm flex items-center gap-2 ${tokoCabangInfo ? 'text-emerald-400' : 'text-amber-400'}`}>
-            <ShieldAlert className="w-4 h-4 shrink-0" /> {filterInfo}
-          </p>
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className={`text-sm flex items-center gap-2 ${tokoCabangInfo ? 'text-emerald-400' : 'text-amber-400'}`}>
+              <ShieldAlert className="w-4 h-4 shrink-0" /> {filterInfo}
+            </p>
+            <Button
+              variant="secondary"
+              className="text-xs py-1 px-3 h-auto border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 shrink-0"
+              onClick={() => setShowTikorModal(true)}
+            >
+              <MapPin className="w-3.5 h-3.5 mr-1" /> {tokoCabangInfo ? 'Ubah Tikor Toko' : 'Input Tikor Toko'}
+            </Button>
+          </div>
         </Card>
       )}
       {result && !result.db_lokal_connected && (
@@ -1213,6 +1341,123 @@ export default function PenjadwalanRadius() {
                 </button>
               </div>
             </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal Atur Tikor Toko Cabang */}
+      {showTikorModal && (
+        <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+          <Card className="w-full max-w-md flex flex-col bg-[var(--bg-surface)] border-[var(--border-strong)] shadow-2xl p-5">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-emerald-400" /> Atur Titik Koordinat Cabang {cabang}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowTikorModal(false)}
+                className="text-[var(--text-muted)] hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTikor} className="space-y-4">
+              <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-[var(--text-secondary)] space-y-1">
+                <p>
+                  Titik koordinat ini digunakan sebagai <strong>titik acuan toko cabang</strong> untuk filter radius maksimal kilometer kunjungan member.
+                </p>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Data otomatis tersimpan ke Supabase Cloud (<code>tbmaster_tikortoko</code>) dan database lokal.
+                </p>
+              </div>
+
+              {/* Quick Converter / Paste box */}
+              <div className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-inset)] space-y-2">
+                <label className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                  <Navigation className="w-3.5 h-3.5 text-blue-400" /> Quick Paste / Konversi Koordinat
+                </label>
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  Paste format derajat/DMS (<code>6°59'53.5"S 107°33'21.5"E</code>) atau desimal (<code>-6.998194, 107.555972</code>):
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Misal: 6°59'53.5&quot;S 107°33'21.5&quot;E"
+                    value={tikorForm.rawInput}
+                    onChange={(e) => setTikorForm({ ...tikorForm, rawInput: e.target.value })}
+                    className="flex-1 bg-[var(--surface)] border border-[var(--border-strong)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:outline-none focus:border-emerald-500"
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="text-xs px-3 py-1.5"
+                    onClick={handleConvertCoordinates}
+                  >
+                    Konversi
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-[var(--text-muted)] block mb-1">Nama Toko / Keterangan Cabang</label>
+                <input
+                  type="text"
+                  required
+                  placeholder={`Contoh: SPI KATAPANG atau Cabang ${cabang}`}
+                  value={tikorForm.nama_toko}
+                  onChange={(e) => setTikorForm({ ...tikorForm, nama_toko: e.target.value })}
+                  className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-lg px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-[var(--text-muted)] block mb-1">Latitude</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="-6.998194"
+                    value={tikorForm.latitude}
+                    onChange={(e) => setTikorForm({ ...tikorForm, latitude: e.target.value })}
+                    className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-lg px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[var(--text-muted)] block mb-1">Longitude</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="107.555972"
+                    value={tikorForm.longitude}
+                    onChange={(e) => setTikorForm({ ...tikorForm, longitude: e.target.value })}
+                    className="w-full bg-[var(--surface)] border border-[var(--border-strong)] rounded-lg px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="flex-1 justify-center bg-emerald-600 hover:bg-emerald-500 text-white"
+                  disabled={savingTikor}
+                >
+                  {savingTikor ? 'Menyimpan...' : (
+                    <>
+                      <Save className="w-3.5 h-3.5" /> Simpan Titik Koordinat
+                    </>
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setShowTikorModal(false)}
+                  className="bg-[var(--wash-2)] hover:bg-[var(--wash-4)] text-[var(--text-muted)] px-4 py-2.5 rounded-xl text-xs border border-[var(--border-strong)] cursor-pointer"
+                >
+                  Batal
+                </button>
+              </div>
+            </form>
           </Card>
         </div>
       )}
