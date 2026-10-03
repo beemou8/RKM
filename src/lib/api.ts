@@ -169,6 +169,7 @@ export function fetchScheduleGenerate(params: {
   cabang: string;
   maksPerHari?: string;
   maksKm?: string;
+  utamakanMemberPilihan?: boolean;
 }): Promise<ScheduleResponse> {
   const q = new URLSearchParams({
     bulan: params.bulan,
@@ -180,6 +181,7 @@ export function fetchScheduleGenerate(params: {
     ...(params.tglSampai ? { tgl_sampai: params.tglSampai } : {}),
     ...(params.maksPerHari ? { maks_per_hari: params.maksPerHari } : {}),
     ...(params.maksKm ? { maks_km: params.maksKm } : {}),
+    ...(params.utamakanMemberPilihan !== undefined ? { utamakan_member_pilihan: String(params.utamakanMemberPilihan) } : {}),
   });
   return getJson(`/api/schedule/generate?${q}`);
 }

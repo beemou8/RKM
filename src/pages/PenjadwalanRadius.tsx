@@ -128,6 +128,7 @@ export default function PenjadwalanRadius() {
   const [tahun, setTahun] = useState(String(now.getFullYear()));
   const [maksPerHari, setMaksPerHari] = useState('15');
   const [maksKm, setMaksKm] = useState('10');
+  const [utamakanMemberPilihan, setUtamakanMemberPilihan] = useState(true);
   const [result, setResult] = useState<ScheduleResponse | null>(null);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<{
@@ -254,6 +255,7 @@ export default function PenjadwalanRadius() {
         cabang,
         maksPerHari,
         maksKm: maksKm.trim() ? maksKm.trim() : undefined,
+        utamakanMemberPilihan,
       }),
       fetchStatusToko(cabang).catch(() => ({ data: [] as StatusToko[], jadwal_dihapus: 0 })),
     ])
@@ -301,7 +303,9 @@ export default function PenjadwalanRadius() {
           const daftar = r.hari_libur_dilewati.map((h) => `${fmtDate(h.tanggal)} (${h.nama})`).join(', ');
           infoParts.push(`${r.hari_libur_dilewati.length} tanggal merah resmi dilewati dari penjadwalan: ${daftar}.`);
         }
-        if (r.member_pilihan_info) {
+        if (r.utamakan_member_pilihan === false) {
+          infoParts.push('Mode: Semua Member Dijadwalkan (Member Pilihan tidak diutamakan).');
+        } else if (r.member_pilihan_info) {
           const rows = Object.entries(r.member_pilihan_info);
           const uploaded = rows.reduce((n, [, v]) => n + v.uploaded, 0);
           const generated = rows.reduce((n, [, v]) => n + v.generated, 0);
@@ -778,37 +782,64 @@ export default function PenjadwalanRadius() {
           </div>
         </div>
       
-        <div className="flex items-center gap-1.5 pt-2 text-xs overflow-x-auto border-t border-[var(--border-subtle)] mt-3">
-          <span className="text-[11px] text-[var(--text-muted)] mr-1 shrink-0">
-            Preset Radius:
-          </span>
-          {[
-            { label: 'Bebas', value: '' },
-            { label: '5 km', value: '5' },
-            { label: '8 km', value: '8' },
-            { label: '10 km', value: '10' },
-            { label: '15 km', value: '15' },
-            { label: '20 km', value: '20' },
-          ].map((p) => {
-            const isActive = maksKm === p.value;
-            return (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => setMaksKm(p.value)}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
-                  isActive
-                    ? 'bg-emerald-500 text-white font-bold shadow-sm'
-                    : 'bg-[var(--wash-2)] hover:bg-[var(--wash-4)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
-                }`}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-          <span className="text-[10px] text-[var(--text-muted)] ml-auto hidden md:inline">
-            {maksKm ? `Toko > ${maksKm} km dari klaster hari tidak dipaksakan masuk ke hari yang sama.` : 'Tidak ada batas jarak (bebas).'}
-          </span>
+        <div className="flex items-center justify-between gap-3 pt-2.5 text-xs border-t border-[var(--border-subtle)] mt-3 flex-wrap">
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <span className="text-[11px] text-[var(--text-muted)] mr-1 shrink-0">
+              Preset Radius:
+            </span>
+            {[
+              { label: 'Bebas', value: '' },
+              { label: '5 km', value: '5' },
+              { label: '8 km', value: '8' },
+              { label: '10 km', value: '10' },
+              { label: '15 km', value: '15' },
+              { label: '20 km', value: '20' },
+            ].map((p) => {
+              const isActive = maksKm === p.value;
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => setMaksKm(p.value)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer shrink-0 ${
+                    isActive
+                      ? 'bg-emerald-500 text-white font-bold shadow-sm'
+                      : 'bg-[var(--wash-2)] hover:bg-[var(--wash-4)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Kotak Ceklis Utamakan Member Pilihan */}
+          <div className="flex items-center gap-2 ml-auto">
+            <label
+              className={`flex items-center gap-2 cursor-pointer select-none px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                utamakanMemberPilihan
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-400 shadow-sm'
+                  : 'bg-[var(--wash-2)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              }`}
+              title={
+                utamakanMemberPilihan
+                  ? 'Member Pilihan diutamakan dengan target 2x kunjungan per bulan'
+                  : 'Semua member dijadwalkan merata (Member Pilihan tidak diutamakan)'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={utamakanMemberPilihan}
+                onChange={(e) => setUtamakanMemberPilihan(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400 cursor-pointer accent-amber-500"
+              />
+              <Star className={`w-3.5 h-3.5 ${utamakanMemberPilihan ? 'text-amber-400 fill-amber-400' : 'text-gray-400'}`} />
+              <span>Utamakan Member Pilihan</span>
+            </label>
+            <span className="text-[10px] text-[var(--text-muted)] hidden xl:inline">
+              {utamakanMemberPilihan ? '(Prioritas 2x kunjungan)' : '(Semua member rata)'}
+            </span>
+          </div>
         </div>
       </Card>
 

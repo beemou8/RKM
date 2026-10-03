@@ -226,8 +226,9 @@ async function generateMatrix(params: {
   cabang: string;
   maksPerHari: number;
   maksKm?: number;
+  utamakanMemberPilihan?: boolean;
 }) {
-  const { bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari, maksKm } = params;
+  const { bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari, maksKm, utamakanMemberPilihan = true } = params;
   const modeFull = mode === 'full';
   const bulanNum = parseInt(bulan, 10);
   const jumlahHari = daysInMonth(bulanNum, tahun);
@@ -361,10 +362,14 @@ async function generateMatrix(params: {
     // semua toko dengan koordinat valid tetap masuk pool (tidak ada yang dibuang),
     // dan urutan kunjungan tetap dijaga searah lewat pengurutan sudut (bearing) di
     // bawah ini + routeSort (nearest-neighbour) saat mengisi tiap hari.
-    const pilihanPool = withBearing.filter((t) => pilihanCodes.has(normCode(t.cus_kodemember)));
-    let poolToko = withBearing
-      .filter((t) => !pilihanCodes.has(normCode(t.cus_kodemember)))
-      .sort((a, b) => a.sudut - b.sudut);
+    const pilihanPool = utamakanMemberPilihan
+      ? withBearing.filter((t) => pilihanCodes.has(normCode(t.cus_kodemember)))
+      : [];
+    let poolToko = utamakanMemberPilihan
+      ? withBearing
+          .filter((t) => !pilihanCodes.has(normCode(t.cus_kodemember)))
+          .sort((a, b) => a.sudut - b.sudut)
+      : [...withBearing].sort((a, b) => a.sudut - b.sudut);
 
     const awalBulan = `${tahun}-${bulan}-01`;
     const akhirBulan = `${tahun}-${bulan}-${String(jumlahHari).padStart(2, '0')}`;
@@ -378,14 +383,16 @@ async function generateMatrix(params: {
     // Kalau kode sudah pernah muncul 1/2 kali sebelumnya, baris yang sudah ada
     // langsung diberi tipe_member = 'Member Pilihan' dan tetap dihitung sebagai
     // kemunculan bulan ini. Generator hanya membuat kekurangannya sampai 2x.
-    const existingPilihanIds = (jadwalAktifRows || [])
-      .filter((r: any) => pilihanCodes.has(normCode(r.kode_member)) && r.tipe_member !== 'Member Pilihan')
-      .map((r: any) => Number(r.id))
-      .filter((id: number) => Number.isFinite(id));
-    if (existingPilihanIds.length > 0) {
-      for (let i = 0; i < existingPilihanIds.length; i += 100) {
-        const chunk = existingPilihanIds.slice(i, i + 100);
-        await updateSupabase('tbtr_jadwal_bulanan', `id=in.(${chunk.join(',')})`, { tipe_member: 'Member Pilihan' }).catch(() => undefined);
+    if (utamakanMemberPilihan) {
+      const existingPilihanIds = (jadwalAktifRows || [])
+        .filter((r: any) => pilihanCodes.has(normCode(r.kode_member)) && r.tipe_member !== 'Member Pilihan')
+        .map((r: any) => Number(r.id))
+        .filter((id: number) => Number.isFinite(id));
+      if (existingPilihanIds.length > 0) {
+        for (let i = 0; i < existingPilihanIds.length; i += 100) {
+          const chunk = existingPilihanIds.slice(i, i + 100);
+          await updateSupabase('tbtr_jadwal_bulanan', `id=in.(${chunk.join(',')})`, { tipe_member: 'Member Pilihan' }).catch(() => undefined);
+        }
       }
     }
 
@@ -441,25 +448,27 @@ async function generateMatrix(params: {
     const requests: SpecialReq[] = [];
     let alreadyScheduled = 0;
 
-    for (const row of pilihanRows) {
-      const code = normCode(row.kode_member);
-      const member = pilihanByCode.get(code);
-      if (!member) continue;
-      const existingDates = Array.from(existingDatesByCode.get(code) || []).sort();
-      alreadyScheduled += Math.min(existingDates.length, 2);
-      const missing = Math.max(0, 2 - existingDates.length);
-      if (missing === 0) continue;
+    if (utamakanMemberPilihan) {
+      for (const row of pilihanRows) {
+        const code = normCode(row.kode_member);
+        const member = pilihanByCode.get(code);
+        if (!member) continue;
+        const existingDates = Array.from(existingDatesByCode.get(code) || []).sort();
+        alreadyScheduled += Math.min(existingDates.length, 2);
+        const missing = Math.max(0, 2 - existingDates.length);
+        if (missing === 0) continue;
 
-      if (existingDates.length === 1) {
-        const halfExisting: 1 | 2 = dateDay(existingDates[0]) <= Math.ceil(jumlahHari / 2) ? 1 : 2;
-        requests.push({ member, preferredHalf: halfExisting === 1 ? 2 : 1 });
-      } else {
-        if (missing >= 1) requests.push({ member, preferredHalf: 1 });
-        if (missing >= 2) requests.push({ member, preferredHalf: 2 });
+        if (existingDates.length === 1) {
+          const halfExisting: 1 | 2 = dateDay(existingDates[0]) <= Math.ceil(jumlahHari / 2) ? 1 : 2;
+          requests.push({ member, preferredHalf: halfExisting === 1 ? 2 : 1 });
+        } else {
+          if (missing >= 1) requests.push({ member, preferredHalf: 1 });
+          if (missing >= 2) requests.push({ member, preferredHalf: 2 });
+        }
       }
-    }
 
-    requests.sort((a, b) => a.preferredHalf - b.preferredHalf || a.member.sudut - b.member.sudut);
+      requests.sort((a, b) => a.preferredHalf - b.preferredHalf || a.member.sudut - b.member.sudut);
+    }
 
     let generatedSpecial = 0;
     for (const req of requests) {
@@ -539,7 +548,7 @@ async function generateMatrix(params: {
           break;
         }
         const next = poolToko.splice(idx, 1)[0];
-        regular.push({ ...next, member_pilihan: false });
+        regular.push({ ...next, member_pilihan: pilihanCodes.has(normCode(next.cus_kodemember)) });
         anchors.push({ lat: next.lat, lng: next.lng });
         slots--;
       }
@@ -570,13 +579,15 @@ async function generateMatrix(params: {
       }
     }
 
-    const resolvedChoiceCodes = new Set(pilihanPool.map((p) => normCode(p.cus_kodemember)));
-    memberPilihanInfo[u] = {
-      uploaded: pilihanRows.length,
-      already_scheduled: alreadyScheduled,
-      generated: generatedSpecial,
-      unresolved: pilihanRows.filter((p) => !resolvedChoiceCodes.has(normCode(p.kode_member))).length + Math.max(0, requests.length - generatedSpecial),
-    };
+    if (utamakanMemberPilihan) {
+      const resolvedChoiceCodes = new Set(pilihanPool.map((p) => normCode(p.cus_kodemember)));
+      memberPilihanInfo[u] = {
+        uploaded: pilihanRows.length,
+        already_scheduled: alreadyScheduled,
+        generated: generatedSpecial,
+        unresolved: pilihanRows.filter((p) => !resolvedChoiceCodes.has(normCode(p.kode_member))).length + Math.max(0, requests.length - generatedSpecial),
+      };
+    }
   }
 
   return {
@@ -587,6 +598,7 @@ async function generateMatrix(params: {
       .sort()
       .map((tgl) => ({ tanggal: tgl, nama: liburInfo.names.get(tgl) || 'Hari Libur' })),
     toko_cabang: tokoCabang,
+    utamakan_member_pilihan: utamakanMemberPilihan,
   };
 }
 
@@ -612,7 +624,21 @@ scheduleRouter.get('/generate', async (req, res) => {
     const maksKmRaw = parseFloat((req.query.maks_km as string) || '');
     const maksKm = Number.isFinite(maksKmRaw) && maksKmRaw > 0 ? maksKmRaw : undefined;
 
-    const result = await generateMatrix({ bulan, tahun, petugas, mode, tglDari, tglSampai, cabang, maksPerHari, maksKm });
+    const utamakanRaw = req.query.utamakan_member_pilihan;
+    const utamakanMemberPilihan = utamakanRaw === undefined ? true : (utamakanRaw === 'true' || utamakanRaw === '1');
+
+    const result = await generateMatrix({
+      bulan,
+      tahun,
+      petugas,
+      mode,
+      tglDari,
+      tglSampai,
+      cabang,
+      maksPerHari,
+      maksKm,
+      utamakanMemberPilihan,
+    });
     res.json({ ...result, db_lokal_connected: getDbStatus().connected });
   } catch (err: any) {
     res.status(500).json({ error: err.message, db_lokal_connected: false });

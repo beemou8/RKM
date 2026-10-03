@@ -222,6 +222,8 @@ export interface ScheduleResponse {
   db_lokal_connected: boolean;
   hari_libur_dilewati?: { tanggal: string; nama: string }[];
   member_pilihan_info?: Record<string, { uploaded: number; already_scheduled: number; generated: number; unresolved: number }>;
+  toko_cabang?: { cabang: string; lat: number; lng: number; nama_toko?: string } | null;
+  utamakan_member_pilihan?: boolean;
 }
 
 /** Baris jadwal aktif (sudah tersimpan di tbtr_jadwal_bulanan), dipakai di
