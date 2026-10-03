@@ -109,47 +109,72 @@ async function getMemberPilihanPeriode(cabang: string, _tahun: number, _bulan: n
   return (rows || []).map((r: any) => ({ ...r, username: String(r.advisor || '').trim() }));
 }
 
-async function getTokoCabangCoordinates(cabang: string): Promise<{ lat: number; lng: number; nama_toko?: string } | null> {
+function parseCoordRow(r: any, cabang: string): { cabang: string; lat: number; lng: number; nama_toko?: string } | null {
+  if (!r) return null;
+  let lat = NaN;
+  let lng = NaN;
+
+  if (r.latitude !== undefined && r.latitude !== null && r.longitude !== undefined && r.longitude !== null) {
+    lat = parseFloat(String(r.latitude));
+    lng = parseFloat(String(r.longitude));
+  } else if (r.lat !== undefined && r.lat !== null && r.lng !== undefined && r.lng !== null) {
+    lat = parseFloat(String(r.lat));
+    lng = parseFloat(String(r.lng));
+  } else if (r.koordinat || r.crm_koordinat) {
+    const parts = String(r.koordinat || r.crm_koordinat).split(',');
+    if (parts.length === 2) {
+      lat = parseFloat(parts[0].trim());
+      lng = parseFloat(parts[1].trim());
+    }
+  }
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return {
+      cabang: r.cabang || cabang,
+      lat,
+      lng,
+      nama_toko: r.nama_toko || r.nama_cabang || `Cabang ${cabang}`,
+    };
+  }
+  return null;
+}
+
+async function getTokoCabangCoordinates(cabang: string): Promise<{ cabang: string; lat: number; lng: number; nama_toko?: string } | null> {
   if (!cabang) return null;
+  const cleanCabang = cabang.trim().toUpperCase();
+
+  // 1. Cek dari Supabase Cloud (tempat tabel tbmaster_tikortoko dibuat)
   try {
-    const rows = await queryLocal(
+    const supaRows = await fetchSupabase<any>(
+      `tbmaster_tikortoko?select=*&cabang=ilike.${encodeURIComponent(cleanCabang)}`
+    ).catch(() => []);
+
+    if (supaRows && supaRows.length > 0) {
+      const parsed = parseCoordRow(supaRows[0], cleanCabang);
+      if (parsed) return parsed;
+    }
+  } catch {
+    // continue to local fallback
+  }
+
+  // 2. Fallback: cek ke database lokal Postgres jika ada
+  try {
+    const localRows = await queryLocal(
       `SELECT * FROM tbmaster_tikortoko 
        WHERE LOWER(TRIM(COALESCE(cabang, ''))) = LOWER(TRIM($1))
        LIMIT 1`,
-      [cabang]
+      [cleanCabang]
     ).catch(() => []);
 
-    if (!rows || rows.length === 0) return null;
-    const r = rows[0];
-
-    let lat = NaN;
-    let lng = NaN;
-
-    if (r.latitude !== undefined && r.latitude !== null && r.longitude !== undefined && r.longitude !== null) {
-      lat = parseFloat(String(r.latitude));
-      lng = parseFloat(String(r.longitude));
-    } else if (r.lat !== undefined && r.lat !== null && r.lng !== undefined && r.lng !== null) {
-      lat = parseFloat(String(r.lat));
-      lng = parseFloat(String(r.lng));
-    } else if (r.koordinat || r.crm_koordinat) {
-      const parts = String(r.koordinat || r.crm_koordinat).split(',');
-      if (parts.length === 2) {
-        lat = parseFloat(parts[0].trim());
-        lng = parseFloat(parts[1].trim());
-      }
+    if (localRows && localRows.length > 0) {
+      const parsed = parseCoordRow(localRows[0], cleanCabang);
+      if (parsed) return parsed;
     }
-
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return {
-        lat,
-        lng,
-        nama_toko: r.nama_toko || r.nama_cabang || `Cabang ${cabang}`,
-      };
-    }
-    return null;
   } catch {
-    return null;
+    // ignore
   }
+
+  return null;
 }
 
 function dateDay(dateStr: string): number {

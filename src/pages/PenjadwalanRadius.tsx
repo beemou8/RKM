@@ -514,7 +514,11 @@ export default function PenjadwalanRadius() {
             </button>
           </h1>
           <p className="text-xs text-[var(--text-muted)] mt-0.5">
-            Cabang <span className="text-emerald-400 font-semibold">{cabang}</span> &middot; Atur batas maksimal kilometer antar titik toko per hari agar rute kunjungan advisor tidak terpencar terlalu jauh.
+            Cabang <span className="text-emerald-400 font-semibold">{cabang}</span>
+            {tokoCabangInfo && (
+              <> &middot; Titik Acuan Toko: <span className="text-emerald-400 font-semibold">{tokoCabangInfo.nama_toko || `Cabang ${cabang}`}</span> ({tokoCabangInfo.lat}, {tokoCabangInfo.lng})</>
+            )}
+            {' '}&middot; Atur batas maksimal kilometer antar titik toko per hari agar rute kunjungan advisor tidak terpencar terlalu jauh.
           </p>
         </div>
         <div className="flex gap-2">
@@ -732,9 +736,9 @@ export default function PenjadwalanRadius() {
         </Card>
       )}
       {filterInfo && (
-        <Card className="p-3 border-amber-500/30 bg-amber-500/5">
-          <p className="text-sm text-amber-400 flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4" /> {filterInfo}
+        <Card className={`p-3 ${tokoCabangInfo ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-amber-500/30 bg-amber-500/5'}`}>
+          <p className={`text-sm flex items-center gap-2 ${tokoCabangInfo ? 'text-emerald-400' : 'text-amber-400'}`}>
+            <ShieldAlert className="w-4 h-4 shrink-0" /> {filterInfo}
           </p>
         </Card>
       )}
