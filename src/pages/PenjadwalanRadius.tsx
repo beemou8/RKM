@@ -234,39 +234,7 @@ export default function PenjadwalanRadius() {
           setLookupMsg('Gagal cek kode member, silakan isi nama toko manual.');
         });
     }, 450);
-    
-  const overallStats = useMemo(() => {
-    if (!result) return null;
-    let totalStores = 0;
-    let totalDays = 0;
-    let totalKmSum = 0;
-    let maxRadiusFound = 0;
-
-    for (const days of Object.values(result.matrix)) {
-      for (const day of days) {
-        totalDays++;
-        totalStores += day.toko.length;
-        if (day.total_km) totalKmSum += day.total_km;
-        if (day.max_radius_km && day.max_radius_km > maxRadiusFound) {
-          maxRadiusFound = day.max_radius_km;
-        }
-      }
-    }
-
-    const avgKmPerDay = totalDays > 0 ? Math.round((totalKmSum / totalDays) * 10) / 10 : 0;
-    const avgStoresPerDay = totalDays > 0 ? Math.round((totalStores / totalDays) * 10) / 10 : 0;
-
-    return {
-      totalStores,
-      totalDays,
-      totalKmSum: Math.round(totalKmSum * 10) / 10,
-      avgKmPerDay,
-      avgStoresPerDay,
-      maxRadiusFound,
-    };
-  }, [result]);
-
-  return () => clearTimeout(id);
+    return () => clearTimeout(id);
   }, [manualForm.kode_member, cabang, showManualModal]);
 
   // Ambil jadwal yang sudah ada untuk advisor + tanggal terpilih, supaya bisa
@@ -478,6 +446,37 @@ export default function PenjadwalanRadius() {
   // Snap the visit sequence to real roads instead of a straight line that
   // cuts through blocks/buildings.
   const { route: roadRoute, loading: routeLoading, snapped: routeSnapped } = useRoadRoute(previewLine);
+
+  const overallStats = useMemo(() => {
+    if (!result) return null;
+    let totalStores = 0;
+    let totalDays = 0;
+    let totalKmSum = 0;
+    let maxRadiusFound = 0;
+
+    for (const days of Object.values(result.matrix)) {
+      for (const day of days) {
+        totalDays++;
+        totalStores += day.toko.length;
+        if (day.total_km) totalKmSum += day.total_km;
+        if (day.max_radius_km && day.max_radius_km > maxRadiusFound) {
+          maxRadiusFound = day.max_radius_km;
+        }
+      }
+    }
+
+    const avgKmPerDay = totalDays > 0 ? Math.round((totalKmSum / totalDays) * 10) / 10 : 0;
+    const avgStoresPerDay = totalDays > 0 ? Math.round((totalStores / totalDays) * 10) / 10 : 0;
+
+    return {
+      totalStores,
+      totalDays,
+      totalKmSum: Math.round(totalKmSum * 10) / 10,
+      avgKmPerDay,
+      avgStoresPerDay,
+      maxRadiusFound,
+    };
+  }, [result]);
 
   return (
     <div className="max-w-[1700px] mx-auto space-y-4">
