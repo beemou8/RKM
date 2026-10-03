@@ -138,6 +138,10 @@ export function fetchScheduleAdvisors(cabang: string): Promise<{ advisors: strin
   return getJson(`/api/schedule/advisors?cabang=${encodeURIComponent(cabang)}`);
 }
 
+export function fetchTikorToko(cabang: string): Promise<{ success: boolean; data: { cabang: string; lat: number; lng: number; nama_toko?: string } | null }> {
+  return getJson(`/api/schedule/tikor-toko?cabang=${encodeURIComponent(cabang)}`);
+}
+
 export function fetchScheduleGenerate(params: {
   bulan: string;
   tahun: string;

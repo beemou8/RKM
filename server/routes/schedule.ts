@@ -109,6 +109,49 @@ async function getMemberPilihanPeriode(cabang: string, _tahun: number, _bulan: n
   return (rows || []).map((r: any) => ({ ...r, username: String(r.advisor || '').trim() }));
 }
 
+async function getTokoCabangCoordinates(cabang: string): Promise<{ lat: number; lng: number; nama_toko?: string } | null> {
+  if (!cabang) return null;
+  try {
+    const rows = await queryLocal(
+      `SELECT * FROM tbmaster_tikortoko 
+       WHERE LOWER(TRIM(COALESCE(cabang, ''))) = LOWER(TRIM($1))
+       LIMIT 1`,
+      [cabang]
+    ).catch(() => []);
+
+    if (!rows || rows.length === 0) return null;
+    const r = rows[0];
+
+    let lat = NaN;
+    let lng = NaN;
+
+    if (r.latitude !== undefined && r.latitude !== null && r.longitude !== undefined && r.longitude !== null) {
+      lat = parseFloat(String(r.latitude));
+      lng = parseFloat(String(r.longitude));
+    } else if (r.lat !== undefined && r.lat !== null && r.lng !== undefined && r.lng !== null) {
+      lat = parseFloat(String(r.lat));
+      lng = parseFloat(String(r.lng));
+    } else if (r.koordinat || r.crm_koordinat) {
+      const parts = String(r.koordinat || r.crm_koordinat).split(',');
+      if (parts.length === 2) {
+        lat = parseFloat(parts[0].trim());
+        lng = parseFloat(parts[1].trim());
+      }
+    }
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return {
+        lat,
+        lng,
+        nama_toko: r.nama_toko || r.nama_cabang || `Cabang ${cabang}`,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function dateDay(dateStr: string): number {
   return Number(dateStr.slice(8, 10)) || 1;
 }
@@ -166,6 +209,7 @@ async function generateMatrix(params: {
   const blockedCodes = await getBlockedMemberCodes();
   const liburInfo = await getHolidayInfo(tahun);
   const liburDilewati = new Set<string>();
+  const tokoCabang = await getTokoCabangCoordinates(cabang);
 
   let advisorToProcess: string[] = [];
   if (modeFull) {
@@ -247,12 +291,23 @@ async function generateMatrix(params: {
       const lng = parseFloat(parts[1].trim());
       if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
 
+      let distFromCabang: number | undefined = undefined;
+      if (tokoCabang) {
+        distFromCabang = Math.round(distanceKm(tokoCabang.lat, tokoCabang.lng, lat, lng) * 10) / 10;
+        // Jika batas radius kilometer ditentukan dan data koordinat toko cabang tersedia di tbmaster_tikortoko,
+        // saring member agar hanya yang berada dalam radius maksKm dari toko cabang yang masuk pool!
+        if (maksKm && Number.isFinite(maksKm) && maksKm > 0 && distFromCabang > maksKm) {
+          continue;
+        }
+      }
+
       rawPool.push({
         ...row,
         lat,
         lng,
         tipe_member: row.tipe_member,
         member_pilihan: pilihanCodes.has(kode),
+        dist_from_cabang_km: distFromCabang,
       });
       latTotal += lat;
       lngTotal += lng;
@@ -267,7 +322,10 @@ async function generateMatrix(params: {
     const latPusat = latTotal / totalTokoAda;
     const lngPusat = lngTotal / totalTokoAda;
 
-    const withBearing = rawPool.map((t) => ({ ...t, sudut: bearing(latPusat, lngPusat, t.lat, t.lng) }));
+    const withBearing = rawPool.map((t) => ({
+      ...t,
+      sudut: tokoCabang ? bearing(tokoCabang.lat, tokoCabang.lng, t.lat, t.lng) : bearing(latPusat, lngPusat, t.lat, t.lng),
+    }));
     // PENTING: dulu member RKM biasa dibatasi radius 15km dari titik pusat (rata-rata
     // koordinat SELURUH toko advisor tsb). Kalau toko advisor tersebar (mis. dua
     // kelompok toko yang jauh terpisah), titik pusatnya jadi berada di "tengah" yang
@@ -461,7 +519,10 @@ async function generateMatrix(params: {
         slots--;
       }
 
-      const generatedDay = routeSort([...special, ...regular], existingAnchors.get(currentDate) || []);
+      const seedPoints = (existingAnchors.get(currentDate) || []).length > 0
+        ? existingAnchors.get(currentDate)!
+        : (tokoCabang ? [{ lat: tokoCabang.lat, lng: tokoCabang.lng }] : []);
+      const generatedDay = routeSort([...special, ...regular], seedPoints);
       if (generatedDay.length > 0) {
         let dayTotalKm = 0;
         let dayMaxRadiusKm = 0;
@@ -500,6 +561,7 @@ async function generateMatrix(params: {
     hari_libur_dilewati: Array.from(liburDilewati)
       .sort()
       .map((tgl) => ({ tanggal: tgl, nama: liburInfo.names.get(tgl) || 'Hari Libur' })),
+    toko_cabang: tokoCabang,
   };
 }
 
@@ -529,6 +591,16 @@ scheduleRouter.get('/generate', async (req, res) => {
     res.json({ ...result, db_lokal_connected: getDbStatus().connected });
   } catch (err: any) {
     res.status(500).json({ error: err.message, db_lokal_connected: false });
+  }
+});
+
+scheduleRouter.get('/tikor-toko', async (req, res) => {
+  try {
+    const cabang = (req.query.cabang as string) || '2T';
+    const coord = await getTokoCabangCoordinates(cabang);
+    res.json({ success: true, data: coord });
+  } catch (err: any) {
+    res.json({ success: false, data: null, error: err.message });
   }
 });
 

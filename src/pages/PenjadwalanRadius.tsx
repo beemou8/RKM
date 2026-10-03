@@ -22,9 +22,11 @@ import {
   Star,
   Gauge,
 } from 'lucide-react';
+import L from 'leaflet';
 import {
   fetchScheduleAdvisors,
   fetchScheduleGenerate,
+  fetchTikorToko,
   pushSchedule,
   exportSchedule,
   downloadBlob,
@@ -47,12 +49,21 @@ import PenjadwalanSpvSubPage from '../components/PenjadwalanSpvSubPage';
 
 const now = new Date();
 
+const storeBranchIcon = L.divIcon({
+  className: 'branch-marker',
+  html: `<div style="background:#10b981;color:#ffffff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid #ffffff;box-shadow:0 4px 10px rgba(0,0,0,0.4);cursor:pointer;" title="Pusat Toko Cabang">🏢</div>`,
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+  popupAnchor: [0, -17],
+});
+
 export default function PenjadwalanRadius() {
   const { cabang } = useOutletContext<LayoutContext>();
   const [scheduleMode, setScheduleMode] = useState<'reguler' | 'spv'>('reguler');
   const [theme] = useTheme();
   const routeColor = theme === 'light' ? '#2563eb' : '#60a5fa';
   const [advisorList, setAdvisorList] = useState<string[]>([]);
+  const [tokoCabangInfo, setTokoCabangInfo] = useState<{ cabang: string; lat: number; lng: number; nama_toko?: string } | null>(null);
   const [petugas, setPetugas] = useState('');
   const [tglDari, setTglDari] = useState('');
   const [tglSampai, setTglSampai] = useState('');
@@ -109,6 +120,12 @@ export default function PenjadwalanRadius() {
     fetchScheduleAdvisors(cabang)
       .then((r) => setAdvisorList(r.advisors))
       .catch(() => {});
+
+    fetchTikorToko(cabang)
+      .then((r) => {
+        if (r.success && r.data) setTokoCabangInfo(r.data);
+      })
+      .catch(() => {});
   }, [cabang]);
 
   const runGenerate = (mode: string) => {
@@ -155,14 +172,17 @@ export default function PenjadwalanRadius() {
         }
 
         setResult({ ...r, matrix: matrixBersih });
+        if (r.toko_cabang) setTokoCabangInfo(r.toko_cabang);
         const initChecked: Record<string, boolean> = {};
         Object.values(matrixBersih).forEach((days) =>
           days.forEach((day) => day.toko.forEach((t) => (initChecked[uniqueKey(day.tanggal, t.cus_kodemember)] = true)))
         );
         setChecked(initChecked);
         const infoParts: string[] = [];
-        if (maksKm && parseFloat(maksKm) > 0) {
-          infoParts.push(`Batas radius klaster aktif: maksimal ${maksKm} km per hari.`);
+        if (r.toko_cabang) {
+          infoParts.push(`Pusat Toko Cabang: ${r.toko_cabang.nama_toko || `Cabang ${cabang}`} (${r.toko_cabang.lat}, ${r.toko_cabang.lng}) terdeteksi dari tbmaster_tikortoko. Hanya toko dalam radius ${maksKm || 'bebas'} km dari toko cabang yang dimasukkan.`);
+        } else if (maksKm && parseFloat(maksKm) > 0) {
+          infoParts.push(`Batas radius klaster aktif: maksimal ${maksKm} km per hari (tbmaster_tikortoko belum terisi untuk cabang ${cabang}).`);
         }
         if (jumlahDisaring > 0) {
           infoParts.push(`${jumlahDisaring} toko yang terdaftar di Toko Tutup ikut disaring dari hasil generate.`);
@@ -822,7 +842,14 @@ export default function PenjadwalanRadius() {
                                 </span>
                               )}
                             </span>
-                            <span className="text-[10px] text-[var(--text-faint)] font-mono">{t.crm_koordinat}</span>
+                            <span className="text-[10px] text-[var(--text-faint)] font-mono flex items-center gap-1.5 shrink-0 ml-1">
+                              {t.dist_from_cabang_km !== undefined && (
+                                <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-400 font-mono" title="Jarak langsung dari Toko Cabang">
+                                  {t.dist_from_cabang_km} km dr toko
+                                </span>
+                              )}
+                              <span>{t.crm_koordinat}</span>
+                            </span>
                           </label>
                         ))}
                       </div>
@@ -862,6 +889,17 @@ export default function PenjadwalanRadius() {
             )}
             <MapContainer center={[-6.9946, 107.5657]} zoom={11} style={{ height: '100%', width: '100%' }}>
               <CartoTileLayer />
+              {tokoCabangInfo && (
+                <Marker position={[tokoCabangInfo.lat, tokoCabangInfo.lng]} icon={storeBranchIcon}>
+                  <Popup>
+                    <b>Pusat Cabang: {tokoCabangInfo.nama_toko || `Cabang ${cabang}`}</b>
+                    <hr />
+                    <b>Koordinat:</b> {tokoCabangInfo.lat}, {tokoCabangInfo.lng}
+                    <br />
+                    <span className="text-[11px] text-emerald-500 font-semibold">Titik Acuan Toko Cabang (tbmaster_tikortoko)</span>
+                  </Popup>
+                </Marker>
+              )}
               {preview && <FitBounds points={previewLine} />}
               {preview &&
                 preview.toko.map((t, idx) =>
@@ -871,6 +909,14 @@ export default function PenjadwalanRadius() {
                         <b>Urutan Ke-{idx + 1}</b>
                         <hr />
                         <b>Toko:</b> {t.cus_namamember}
+                        <br />
+                        <b>Kode:</b> {t.cus_kodemember}
+                        {t.dist_from_cabang_km !== undefined && (
+                          <>
+                            <br />
+                            <b>Jarak ke Toko Cabang:</b> {t.dist_from_cabang_km} km
+                          </>
+                        )}
                         {t.member_pilihan && (<>
                           <br />
                           <b>Keterangan:</b> Member Pilihan
