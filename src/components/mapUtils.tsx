@@ -70,6 +70,12 @@ const OSRM_ROUTE_SERVERS = [
   'https://routing.openstreetmap.de/routed-car/route/v1/driving/',
 ];
 const OSRM_MATCH_URL = 'https://router.project-osrm.org/match/v1/driving/';
+/** Server OSRM publik kadang menggantung; jangan biarkan peta menunggu tanpa batas. */
+function fetchWithTimeout(url: string, ms = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timer));
+}
 const ROAD_ROUTE_CACHE = new Map<string, { route: [number, number][]; distanceM: number }>();
 
 function distanceBetweenM(p1: [number, number], p2: [number, number]): number {
@@ -161,7 +167,7 @@ function useRoadGeometry(
       if (mode === 'match') {
         try {
           const matchUrl = `${OSRM_MATCH_URL}${coords}?overview=full&geometries=geojson&gaps=split&radiuses=${trimmed.map(() => 50).join(';')}`;
-          const res = await fetch(matchUrl);
+          const res = await fetchWithTimeout(matchUrl);
           if (res.ok) {
             const data = await res.json();
             const coordsGeo: [number, number][] | undefined = data?.matchings?.[0]?.geometry?.coordinates;
@@ -180,7 +186,7 @@ function useRoadGeometry(
       for (const server of OSRM_ROUTE_SERVERS) {
         try {
           const routeUrl = `${server}${coords}?overview=full&geometries=geojson`;
-          const res = await fetch(routeUrl);
+          const res = await fetchWithTimeout(routeUrl);
           if (res.ok) {
             const data = await res.json();
             const coordsGeo: [number, number][] | undefined = data?.routes?.[0]?.geometry?.coordinates;

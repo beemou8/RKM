@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { queryLocal, getDbStatus } from '../lib/db.js';
-import { fetchSupabase, fetchSupabaseCached, fetchSupabaseAll, insertSupabase, insertManySupabase, updateSupabase, deleteSupabase } from '../lib/supabase.js';
+import { getTableVersion, fetchSupabase, fetchSupabaseCached, fetchSupabaseAll, insertSupabase, insertManySupabase, updateSupabase, deleteSupabase } from '../lib/supabase.js';
 import { distanceKm, bearing } from '../lib/geo.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
 import { todayJakarta } from '../lib/dateUtil.js';
@@ -30,13 +30,52 @@ function daysInMonth(bulan: number, tahun: number) {
  *  dengan cabang yang dipakai di penjadwalan, dan itu sebelumnya bikin
  *  blokir gagal kepasang secara diam-diam. kode_member sudah unik, jadi
  *  cukup itu saja yang dicocokkan. */
+let blockedCache: { expiresAt: number; version: number; value: Set<string> } | null = null;
+let blockedInflight: Promise<Set<string>> | null = null;
+const BLOCKED_CACHE_TTL_MS = 15_000;
+
 export async function getBlockedMemberCodes(): Promise<Set<string>> {
-  const rows = await fetchSupabaseAll<any>(`tbtr_status_toko?select=kode_member`, { pageSize: 1000, maxRows: 50000 }).catch(() => []);
-  const set = new Set<string>();
-  for (const r of rows || []) {
-    if (r.kode_member) set.add(String(r.kode_member).trim().toUpperCase());
+  // Cache singkat + otomatis batal kalau tbtr_status_toko ditulis (insert/update/delete).
+  // Sebelumnya tabel ini ditarik ulang (sampai 50 halaman) di setiap aksi penjadwalan.
+  const version = getTableVersion('tbtr_status_toko');
+  const now = Date.now();
+  if (blockedCache && blockedCache.version === version && blockedCache.expiresAt > now) {
+    return new Set(blockedCache.value);
   }
-  return set;
+  if (blockedInflight) return new Set(await blockedInflight);
+
+  blockedInflight = (async () => {
+    const rows = await fetchSupabaseAll<any>(`tbtr_status_toko?select=kode_member`, { pageSize: 1000, maxRows: 50000 });
+    const set = new Set<string>();
+    for (const r of rows || []) {
+      if (r.kode_member) set.add(String(r.kode_member).trim().toUpperCase());
+    }
+    blockedCache = { expiresAt: Date.now() + BLOCKED_CACHE_TTL_MS, version, value: set };
+    return set;
+  })();
+  try {
+    return new Set(await blockedInflight);
+  } finally {
+    blockedInflight = null;
+  }
+}
+
+/** Status aktivitas belanja semua member satu cabang, diambil SEKALI per request generate.
+ *  Dulu agregat ini (GROUP BY seluruh tbtr_jualheader) dijalankan ulang untuk setiap advisor. */
+async function getMemberActivityMap(cabang: string): Promise<Map<string, 'Belum Aktivasi' | 'Sleeper' | 'Aktif'>> {
+  const rows = await queryLocal(
+    `SELECT jh_cus_kodemember AS kode,
+            MAX(jh_transactiondate) < CURRENT_DATE - INTERVAL '3 months' AS sleeper
+     FROM tbtr_jualheader
+     WHERE jh_cus_kodemember IN (SELECT cus_kodemember FROM tbmaster_customer WHERE cus_kodeigr = $1)
+     GROUP BY jh_cus_kodemember`,
+    [cabang]
+  );
+  const map = new Map<string, 'Belum Aktivasi' | 'Sleeper' | 'Aktif'>();
+  for (const r of rows) {
+    map.set(String(r.kode), r.sleeper ? 'Sleeper' : 'Aktif');
+  }
+  return map;
 }
 
 /** Self-healing cleanup: hapus jadwal (hari ini & ke depan) di tbtr_jadwal_bulanan
@@ -242,6 +281,7 @@ async function generateMatrix(params: {
   const liburInfo = await getHolidayInfo(tahun);
   const liburDilewati = new Set<string>();
   const tokoCabang = await getTokoCabangCoordinates(cabang);
+  const activityMap = await getMemberActivityMap(cabang);
 
   let advisorToProcess: string[] = [];
   if (modeFull) {
@@ -284,29 +324,19 @@ async function generateMatrix(params: {
     const pilihanRows = pilihanByAdvisor.get(u) || [];
     const pilihanCodes = new Set(pilihanRows.map((r) => normCode(r.kode_member)));
 
-    const custRows = await queryLocal(
-      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_nosalesman, cust.cus_kodeigr, crm.crm_koordinat,
-              CASE
-                  WHEN b.belanja_pertama IS NULL THEN 'Belum Aktivasi'
-                  WHEN b.belanja_terakhir < CURRENT_DATE - INTERVAL '3 months' THEN 'Sleeper'
-                  ELSE 'Aktif'
-              END AS tipe_member
+    const custRowsRaw = await queryLocal(
+      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_nosalesman, cust.cus_kodeigr, crm.crm_koordinat
        FROM tbmaster_customer cust
        INNER JOIN tbmaster_customercrm crm ON cust.cus_kodemember = crm.crm_kodemember
-       LEFT JOIN (
-         SELECT
-           jh_cus_kodemember,
-           DATE_TRUNC('day', MIN(jh_transactiondate)) AS belanja_pertama,
-           DATE_TRUNC('day', MAX(jh_transactiondate)) AS belanja_terakhir
-         FROM tbtr_jualheader
-         WHERE jh_cus_kodemember IS NOT NULL
-         GROUP BY jh_cus_kodemember
-       ) b ON cust.cus_kodemember = b.jh_cus_kodemember
        WHERE cust.cus_kodeigr = $1
          AND cust.cus_nosalesman = $2
          AND (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)`,
       [cabang, u]
     );
+    const custRows = custRowsRaw.map((r: any) => ({
+      ...r,
+      tipe_member: activityMap.get(String(r.cus_kodemember)) || 'Belum Aktivasi',
+    }));
 
     const rawPool: any[] = [];
     let latTotal = 0;

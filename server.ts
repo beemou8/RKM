@@ -24,6 +24,15 @@ function envInt(name: string, fallback: number, min: number, max = Number.MAX_SA
 
 const PORT = envInt('PORT', 3000, 1, 65535);
 
+// Jangan biarkan satu error tak tertangani mematikan seluruh proses
+// (semua request yang sedang jalan akan putus => "Failed to fetch").
+process.on('unhandledRejection', (reason) => {
+  console.error('[Server] unhandledRejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[Server] uncaughtException:', err);
+});
+
 // Try the local (on-prem) DB once at boot. If it's unreachable — e.g. this
 // isn't running inside the office network / VPN where 172.31.x.x lives —
 // the app keeps running: Supabase-backed features work normally, and
@@ -109,9 +118,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Server] Running on http://localhost:${PORT} in ${process.env.NODE_ENV || 'development'} mode.`);
   });
+  // Default Node keepAliveTimeout = 5 detik, lebih pendek dari reverse proxy (Traefik/Nginx).
+  // Akibatnya proxy memakai koneksi yang sudah ditutup Node -> ECONNRESET / "Failed to fetch".
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 66_000;
+  server.requestTimeout = envInt('REQUEST_TIMEOUT_MS', 300_000, 30_000);
 }
 
 startServer();

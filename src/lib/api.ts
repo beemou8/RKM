@@ -17,10 +17,26 @@ import type {
   GpsKmResult,
 } from '../types';
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || `Request gagal (${res.status})`);
+const DEFAULT_TIMEOUT_MS = 60_000;
+const HEAVY_TIMEOUT_MS = 180_000; // generate jadwal, SPV, export-style query
+
+async function getJson<T>(url: string, timeoutMs?: number): Promise<T> {
+  const limit = timeoutMs ?? (/\/(generate|spv-generate|spv-candidates)\b/.test(url) ? HEAVY_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), limit);
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`Server terlalu lama merespons (>${Math.round(limit / 1000)} detik). Coba persempit filter lalu ulangi.`);
+    }
+    throw new Error('Tidak bisa terhubung ke server (koneksi terputus atau server sedang restart). Coba lagi sebentar.');
+  } finally {
+    clearTimeout(timer);
+  }
+  const body = await res.json().catch(() => ({} as any));
+  if (!res.ok) throw new Error(body?.error || `Request gagal (${res.status})`);
   return body as T;
 }
 

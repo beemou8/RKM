@@ -15,6 +15,9 @@ export const pool = new pg.Pool({
   password: DB_PASS,
   database: DB_NAME,
   connectionTimeoutMillis: 4000,
+  // Cegah query lokal menggantung selamanya (request menumpuk -> proxy putus -> "failed to fetch").
+  statement_timeout: parseInt(process.env.DB_QUERY_TIMEOUT_MS || '90000', 10) || 90_000,
+  query_timeout: (parseInt(process.env.DB_QUERY_TIMEOUT_MS || '90000', 10) || 90_000) + 5_000,
   idleTimeoutMillis: 10000,
   max: 5,
 });

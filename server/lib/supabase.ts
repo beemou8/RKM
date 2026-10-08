@@ -19,9 +19,15 @@ const API_BASE_URL = RELAY_ONLY ? SUPABASE_RELAY_URL : (SUPABASE_RELAY_URL || LE
 const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
 const RELAY_CLIENT_KEY = process.env.RELAY_CLIENT_KEY || '';
 const RELAY_SHARED_SECRET = process.env.RELAY_SHARED_SECRET || '';
-const REQUEST_TIMEOUT_MS = Math.max(5_000, parseInt(process.env.SUPABASE_TIMEOUT_MS || '30000', 10) || 30_000);
+const REQUEST_TIMEOUT_MS = Math.max(5_000, parseInt(process.env.SUPABASE_TIMEOUT_MS || '15000', 10) || 15_000);
 const GET_CACHE_TTL_MS = Math.max(0, parseInt(process.env.SUPABASE_GET_CACHE_TTL_MS || '15000', 10) || 15_000);
 const getCache = new Map<string, { expiresAt: number; value: unknown }>();
+const tableVersions = new Map<string, number>();
+
+/** Versi tabel: naik setiap ada tulis (insert/update/delete). Dipakai cache di luar modul ini. */
+export function getTableVersion(table: string): number {
+  return tableVersions.get(table.split('?')[0].trim()) || 0;
+}
 
 function assertConfig() {
   if (RELAY_ONLY) {
@@ -65,7 +71,7 @@ async function doFetch(url: string, init: RequestInit = {}, maxRetries = 2): Pro
       const res = await fetch(url, { ...init, signal: controller.signal });
       clearTimeout(timer);
       // Jika relay / server mengembalikan transient error 502/503/504, coba lagi
-      if (res.status >= 502 && res.status <= 504 && attempt <= maxRetries) {
+      if (res.status >= 502 && res.status <= 504 && attempt <= Math.min(maxRetries, 1)) {
         console.warn(`[supabase] ${url} returned ${res.status} (attempt ${attempt}/${maxRetries + 1}). Retrying...`);
         await new Promise((r) => setTimeout(r, 350 * attempt));
         continue;
@@ -124,6 +130,7 @@ export async function fetchSupabaseCached<T = any>(query: string, ttlMs = GET_CA
 export function invalidateTableCache(table: string): void {
   const prefix = table.split('?')[0].trim();
   if (!prefix) return;
+  tableVersions.set(prefix, (tableVersions.get(prefix) || 0) + 1);
   for (const key of getCache.keys()) {
     if (key === prefix || key.startsWith(`${prefix}?`) || key.includes(`/${prefix}?`)) {
       getCache.delete(key);
