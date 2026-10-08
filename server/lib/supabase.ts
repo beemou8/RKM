@@ -19,7 +19,7 @@ const API_BASE_URL = RELAY_ONLY ? SUPABASE_RELAY_URL : (SUPABASE_RELAY_URL || LE
 const SUPABASE_KEY = process.env.SUPABASE_KEY || '';
 const RELAY_CLIENT_KEY = process.env.RELAY_CLIENT_KEY || '';
 const RELAY_SHARED_SECRET = process.env.RELAY_SHARED_SECRET || '';
-const REQUEST_TIMEOUT_MS = Math.max(2_000, parseInt(process.env.SUPABASE_TIMEOUT_MS || '15000', 10) || 15_000);
+const REQUEST_TIMEOUT_MS = Math.max(5_000, parseInt(process.env.SUPABASE_TIMEOUT_MS || '30000', 10) || 30_000);
 const GET_CACHE_TTL_MS = Math.max(0, parseInt(process.env.SUPABASE_GET_CACHE_TTL_MS || '15000', 10) || 15_000);
 const getCache = new Map<string, { expiresAt: number; value: unknown }>();
 
@@ -56,10 +56,31 @@ function headers(extra: Record<string, string> = {}) {
     ...extra,
   };
 }
-
-async function doFetch(url: string, init: RequestInit = {}) {
-  const signal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  return fetch(url, { ...init, signal });
+async function doFetch(url: string, init: RequestInit = {}, maxRetries = 2): Promise<Response> {
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      // Jika relay / server mengembalikan transient error 502/503/504, coba lagi
+      if (res.status >= 502 && res.status <= 504 && attempt <= maxRetries) {
+        console.warn(`[supabase] ${url} returned ${res.status} (attempt ${attempt}/${maxRetries + 1}). Retrying...`);
+        await new Promise((r) => setTimeout(r, 350 * attempt));
+        continue;
+      }
+      return res;
+    } catch (err: any) {
+      clearTimeout(timer);
+      lastError = err;
+      if (attempt <= maxRetries) {
+        console.warn(`[supabase] Fetch error on ${url} (attempt ${attempt}/${maxRetries + 1}): ${err.message}. Retrying in ${350 * attempt}ms...`);
+        await new Promise((r) => setTimeout(r, 350 * attempt));
+      }
+    }
+  }
+  throw lastError;
 }
 
 /** GET satu halaman PostgREST. */
@@ -121,9 +142,6 @@ export async function fetchSupabaseAll<T = any>(
   assertConfig();
   const pageSize = Math.min(Math.max(options.pageSize || 1000, 100), 1000);
   const maxRows = Math.min(Math.max(options.maxRows || 10_000, pageSize), 50_000);
-  const concurrency = Math.min(Math.max(options.concurrency || 3, 1), 5);
-  const pageStarts = Array.from({ length: Math.ceil(maxRows / pageSize) }, (_, i) => i * pageSize);
-
   async function loadPage(start: number): Promise<T[]> {
     const end = Math.min(start + pageSize - 1, maxRows - 1);
     const res = await doFetch(`${API_BASE_URL}/rest/v1/${query}`, {
@@ -139,17 +157,24 @@ export async function fetchSupabaseAll<T = any>(
     return (await res.json()) as T[];
   }
 
-  const pages: T[][] = [];
-  for (let i = 0; i < pageStarts.length; i += concurrency) {
-    const batch = pageStarts.slice(i, i + concurrency);
-    const loaded = await Promise.all(batch.map(loadPage));
-    pages.push(...loaded);
-    // PostgREST may return a short page once the dataset ends. No need to keep
-    // hitting later ranges after that point.
-    if (loaded.some((page) => page.length < pageSize)) break;
+  // 1. Ambil halaman pertama (0..pageSize-1).
+  // Sebagian besar query (< 1000 baris) selesai di sini hanya dengan 1 request,
+  // tanpa membebani relay dengan range spekulatif (1000-1999, 2000-2999) yang berujung 416.
+  const firstPage = await loadPage(0);
+  if (firstPage.length < pageSize || firstPage.length >= maxRows) {
+    return firstPage;
   }
 
-  const out = pages.flat();
+  // 2. Jika halaman pertama penuh (>= 1000 baris), lanjutkan ambil halaman selanjutnya
+  const out: T[] = [...firstPage];
+  let currentStart = pageSize;
+
+  while (currentStart < maxRows) {
+    const page = await loadPage(currentStart);
+    out.push(...page);
+    if (page.length < pageSize) break;
+    currentStart += pageSize;
+  }
   if (out.length < maxRows) return out;
 
   // Probe one row after the cap to distinguish "exactly maxRows" from more data.

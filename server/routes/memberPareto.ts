@@ -78,7 +78,15 @@ memberParetoRouter.get('/master-items', async (req, res) => {
 // ============================================================
 memberParetoRouter.post('/master-items', async (req, res) => {
   try {
-    const cabang = String(req.body.cabang || 'ALL').trim().toUpperCase();
+    let cabang = String(req.body?.cabang || 'ALL').trim().toUpperCase();
+    if (cabang !== 'ALL') {
+      const branch = resolveCabang(cabang);
+      if (!branch.ok) {
+        res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+        return;
+      }
+      cabang = branch.cabang;
+    }
     const prd_prdcd = String(req.body.prd_prdcd || '').trim();
     let nama_barang = String(req.body.nama_barang || '').trim();
     const keterangan = req.body.keterangan ? String(req.body.keterangan).trim() : null;
@@ -121,8 +129,18 @@ memberParetoRouter.post('/master-items', async (req, res) => {
 // ============================================================
 memberParetoRouter.delete('/master-items/:id', async (req, res) => {
   try {
-    const id = req.params.id;
-    await deleteSupabase('tbmaster_item_pareto', `id=eq.${id}`);
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.query.cabang || req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    await deleteSupabase('tbmaster_item_pareto', `id=eq.${id}&or=(cabang.eq.${encodeURIComponent(cabang)},cabang.eq.ALL)`);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -322,7 +340,13 @@ memberParetoRouter.get('/analisis', async (req, res) => {
 // ============================================================
 memberParetoRouter.post('/upload', async (req, res) => {
   try {
-    const { cabang, periode_dari, periode_sampai, items } = req.body || {};
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    const { periode_dari, periode_sampai, items } = req.body || {};
 
     if (!cabang || !periode_dari || !periode_sampai) {
       res.status(400).json({ error: 'Cabang, periode_dari, dan periode_sampai wajib diisi.' });
@@ -434,7 +458,17 @@ memberParetoRouter.get('/monitoring', async (req, res) => {
 // ============================================================
 memberParetoRouter.patch('/status/:id', async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.body?.cabang || req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const { status_followup, catatan } = req.body || {};
 
     if (!status_followup) {
@@ -448,7 +482,7 @@ memberParetoRouter.patch('/status/:id', async (req, res) => {
     };
     if (catatan !== undefined) payload.catatan = catatan;
 
-    await updateSupabase('tbtr_member_pareto', `id=eq.${id}`, payload);
+    await updateSupabase('tbtr_member_pareto', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`, payload);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -460,8 +494,18 @@ memberParetoRouter.patch('/status/:id', async (req, res) => {
 // ============================================================
 memberParetoRouter.delete('/:id', async (req, res) => {
   try {
-    const id = req.params.id;
-    await deleteSupabase('tbtr_member_pareto', `id=eq.${id}`);
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.query.cabang || req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    await deleteSupabase('tbtr_member_pareto', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

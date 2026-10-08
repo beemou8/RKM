@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { fetchSupabaseAll } from '../lib/supabase.js';
+import { fetchSupabaseAll, fetchSupabaseAllCached } from '../lib/supabase.js';
 import { queryLocal } from '../lib/db.js';
 import { FILL, sendWorkbook, styleHeaderRow, thinBorder } from '../lib/excel.js';
+import { resolveCabang } from '../lib/cabang.js';
 
 export const surveiHargaRouter = Router();
 
@@ -77,7 +79,7 @@ function sortHistoryDesc(a: any, b: any) {
 }
 
 async function buildSurveiHargaData(params: BuildParams) {
-  const cabang = String(params.cabang || '2T').trim() || '2T';
+  const cabang = String(params.cabang || '').trim();
   const petugas = String(params.petugas || '').trim();
   const kompetitor = String(params.kompetitor || '').trim();
   const tglDari = cleanDate(params.tglDari);
@@ -92,9 +94,10 @@ async function buildSurveiHargaData(params: BuildParams) {
   if (tglSampai) headerQuery.append('tanggal_struk', `lte.${tglSampai}`);
   headerQuery.set('order', 'tanggal_struk.desc,created_at.desc,id.desc');
 
-  const baseHeaders = await fetchSupabaseAll<SurveiHeaderRow>(`tbtr_survei_header?${headerQuery.toString()}`, {
+  const baseHeaders = await fetchSupabaseAllCached<SurveiHeaderRow>(`tbtr_survei_header?${headerQuery.toString()}`, {
     pageSize: 1000,
     maxRows: 50000,
+    ttlMs: 30_000,
   }).catch((err) => {
     console.error('[survei-harga] Gagal memuat header survei:', err.message);
     return [];
@@ -122,6 +125,7 @@ async function buildSurveiHargaData(params: BuildParams) {
   if (headerIds.length > 0) {
     const batches: number[][] = [];
     for (let i = 0; i < headerIds.length; i += 250) batches.push(headerIds.slice(i, i + 250));
+    for (let i = 0; i < headerIds.length; i += 200) batches.push(headerIds.slice(i, i + 200));
 
     const results = await Promise.all(
       batches.map(async (ids) => {
@@ -139,6 +143,29 @@ async function buildSurveiHargaData(params: BuildParams) {
       })
     );
     details = results.flat();
+    // Eksekusi batch secara terkontrol (2 batch paralel) agar tidak membanjiri koneksi relay
+    const batchResults: SurveiDetailRow[][] = [];
+    for (let i = 0; i < batches.length; i += 2) {
+      const currentChunk = batches.slice(i, i + 2);
+      const chunkRes = await Promise.all(
+        currentChunk.map(async (ids) => {
+          const detailQuery = new URLSearchParams();
+          detailQuery.set('select', 'id,header_id,plu,nama_barang,harga,frac');
+          detailQuery.set('header_id', `in.(${ids.join(',')})`);
+          detailQuery.set('order', 'header_id.asc,id.asc');
+          return fetchSupabaseAllCached<SurveiDetailRow>(`tbtr_survei_detail?${detailQuery.toString()}`, {
+            pageSize: 1000,
+            maxRows: 10000,
+            ttlMs: 30_000,
+          }).catch((err) => {
+            console.error('[survei-harga] Gagal memuat batch detail:', err.message);
+            return [];
+          });
+        })
+      );
+      batchResults.push(...chunkRes);
+    }
+    details = batchResults.flat();
   }
 
   const uniquePlus = Array.from(new Set(details.map((d) => normalizePlu(d.plu)).filter(Boolean)));
@@ -403,8 +430,13 @@ function setupPriceSheet(ws: ExcelJS.Worksheet) {
 
 surveiHargaRouter.get('/', async (req, res) => {
   try {
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
     const data = await buildSurveiHargaData({
-      cabang: String(req.query.cabang || '').trim(),
+      cabang: branch.cabang,
       petugas: String(req.query.petugas || '').trim(),
       kompetitor: String(req.query.kompetitor || '').trim(),
       tglDari: String(req.query.tgl_dari || '').trim(),
@@ -421,8 +453,13 @@ surveiHargaRouter.get('/', async (req, res) => {
 
 surveiHargaRouter.get('/export', async (req, res) => {
   try {
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
     const data = await buildSurveiHargaData({
-      cabang: String(req.query.cabang || '').trim(),
+      cabang: branch.cabang,
       petugas: String(req.query.petugas || '').trim(),
       kompetitor: String(req.query.kompetitor || '').trim(),
       tglDari: String(req.query.tgl_dari || '').trim(),

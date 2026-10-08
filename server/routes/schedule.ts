@@ -5,6 +5,7 @@ import { distanceKm, bearing } from '../lib/geo.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
 import { todayJakarta } from '../lib/dateUtil.js';
 import { getHolidayInfo } from '../lib/holidays.js';
+import { resolveCabang } from '../lib/cabang.js';
 import ExcelJS from 'exceljs';
 
 export const scheduleRouter = Router();
@@ -67,7 +68,12 @@ async function purgeJadwalForBlockedStores(): Promise<number> {
 
 scheduleRouter.get('/advisors', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const rows = await queryLocal(
       `SELECT DISTINCT cus_nosalesman FROM tbmaster_customer
        WHERE cus_kodeigr = $1 AND cus_recordid IS NULL
@@ -271,7 +277,7 @@ async function generateMatrix(params: {
     pilihanByAdvisor.set(key, arr);
   }
 
-  const matrix: Record<string, { tanggal: string; toko: any[] }[]> = {};
+  const matrix: Record<string, { tanggal: string; toko: any[]; total_km?: number; max_radius_km?: number }[]> = {};
   const memberPilihanInfo: Record<string, { uploaded: number; already_scheduled: number; generated: number; unresolved: number }> = {};
 
   for (const u of advisorToProcess) {
@@ -604,13 +610,18 @@ async function generateMatrix(params: {
 
 scheduleRouter.get('/generate', async (req, res) => {
   try {
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const bulan = ((req.query.bulan as string) || String(new Date().getMonth() + 1)).padStart(2, '0');
     const tahun = parseInt((req.query.tahun as string) || String(new Date().getFullYear()), 10);
     const petugas = (req.query.petugas as string) || '';
     const mode = (req.query.mode as string) || '';
     const tglDari = (req.query.tgl_dari as string) || '';
     const tglSampai = (req.query.tgl_sampai as string) || '';
-    const cabang = (req.query.cabang as string) || '2T';
 
     // Jumlah member per hari bisa diatur dari frontend (mis. field "Jumlah
     // Member per Hari" di halaman Penjadwalan). Kalau kosong/tidak valid,
@@ -647,7 +658,12 @@ scheduleRouter.get('/generate', async (req, res) => {
 
 scheduleRouter.get('/tikor-toko', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const coord = await getTokoCabangCoordinates(cabang);
     res.json({ success: true, data: coord });
   } catch (err: any) {
@@ -657,13 +673,17 @@ scheduleRouter.get('/tikor-toko', async (req, res) => {
 
 scheduleRouter.post('/tikor-toko', async (req, res) => {
   try {
-    const { cabang, nama_toko, latitude, longitude, koordinat } = req.body;
-    if (!cabang || latitude === undefined || longitude === undefined) {
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cleanCabang = branch.cabang;
+    const { nama_toko, latitude, longitude, koordinat } = req.body || {};
+    if (latitude === undefined || longitude === undefined) {
       res.status(400).json({ error: 'Field cabang, latitude, dan longitude wajib diisi.' });
       return;
     }
-
-    const cleanCabang = String(cabang).trim().toUpperCase();
     const latNum = parseFloat(String(latitude));
     const lngNum = parseFloat(String(longitude));
     const coordStr = koordinat ? String(koordinat).trim() : `${latNum},${lngNum}`;
@@ -812,10 +832,14 @@ scheduleRouter.post('/export', async (req, res) => {
 
 scheduleRouter.get('/status-toko', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const search = String(req.query.search || '').trim();
-    let query = 'tbtr_status_toko?select=*&order=created_at.desc';
-    if (cabang) query += `&cabang=eq.${encodeURIComponent(cabang)}`;
+    let query = `tbtr_status_toko?select=*&order=created_at.desc&cabang=eq.${encodeURIComponent(cabang)}`;
     if (search) {
       const cleanSearch = search.replace(/[,()]/g, ' ').trim();
       if (cleanSearch) {
@@ -833,7 +857,13 @@ scheduleRouter.get('/status-toko', async (req, res) => {
 
 scheduleRouter.post('/status-toko', async (req, res) => {
   try {
-    const { username, cabang, nama_toko, kode_member, status, keterangan_lainnya, deskripsi } = req.body || {};
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    const { username, nama_toko, kode_member, status, keterangan_lainnya, deskripsi } = req.body || {};
     if (!username || !nama_toko || !status || !kode_member) {
       res.status(400).json({ error: 'username, kode_member, nama_toko, dan status wajib diisi.' });
       return;
@@ -842,7 +872,7 @@ scheduleRouter.post('/status-toko', async (req, res) => {
 
     await insertSupabase('tbtr_status_toko', {
       username,
-      cabang: cabang || null,
+      cabang,
       nama_toko,
       kode_member: kodeMemberUpper,
       status,
@@ -861,7 +891,17 @@ scheduleRouter.post('/status-toko', async (req, res) => {
 
 scheduleRouter.patch('/status-toko/:id', async (req, res) => {
   try {
-    const id = req.params.id;
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.body?.cabang || req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const { status, keterangan_lainnya, deskripsi } = req.body || {};
     const payload: Record<string, any> = {};
     if (status !== undefined) payload.status = status;
@@ -871,7 +911,7 @@ scheduleRouter.patch('/status-toko/:id', async (req, res) => {
       res.status(400).json({ error: 'Tidak ada field yang diubah.' });
       return;
     }
-    await updateSupabase('tbtr_status_toko', `id=eq.${id}`, payload);
+    await updateSupabase('tbtr_status_toko', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`, payload);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -880,7 +920,18 @@ scheduleRouter.patch('/status-toko/:id', async (req, res) => {
 
 scheduleRouter.delete('/status-toko/:id', async (req, res) => {
   try {
-    await deleteSupabase('tbtr_status_toko', `id=eq.${req.params.id}`);
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.query.cabang || req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    await deleteSupabase('tbtr_status_toko', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -893,9 +944,13 @@ scheduleRouter.delete('/status-toko/:id', async (req, res) => {
  */
 scheduleRouter.get('/status-toko/export', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '';
-    let query = 'tbtr_status_toko?select=*&order=created_at.desc';
-    if (cabang) query += `&cabang=eq.${encodeURIComponent(cabang)}`;
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    let query = `tbtr_status_toko?select=*&order=created_at.desc&cabang=eq.${encodeURIComponent(cabang)}`;
     const data = await fetchSupabaseAll<any>(query, { pageSize: 1000, maxRows: 50000 });
 
     const wb = new ExcelJS.Workbook();
@@ -931,7 +986,12 @@ scheduleRouter.get('/status-toko/export', async (req, res) => {
 scheduleRouter.get('/member-lookup', async (req, res) => {
   try {
     const kodeMember = ((req.query.kode_member as string) || '').trim();
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     if (!kodeMember) {
       res.status(400).json({ error: 'kode_member wajib diisi.' });
       return;
@@ -1035,10 +1095,15 @@ scheduleRouter.get('/existing-day', async (req, res) => {
  *  tampilan di halaman Jadwal Aktif persis sama dengan Penjadwalan. */
 scheduleRouter.get('/riwayat', async (req, res) => {
   try {
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const bulan = ((req.query.bulan as string) || String(new Date().getMonth() + 1)).padStart(2, '0');
     const tahun = parseInt((req.query.tahun as string) || String(new Date().getFullYear()), 10);
     const petugas = (req.query.petugas as string) || '';
-    const cabang = (req.query.cabang as string) || '2T';
 
     const awal = `${tahun}-${bulan}-01`;
     const akhir = `${tahun}-${bulan}-${String(daysInMonth(parseInt(bulan, 10), tahun)).padStart(2, '0')}`;
@@ -1091,7 +1156,12 @@ scheduleRouter.get('/riwayat', async (req, res) => {
  *  karena tujuannya justru menangkap semua jadwal terlewat dari kapan pun. */
 scheduleRouter.get('/belum-terkunjungi', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const petugas = (req.query.petugas as string) || '';
     const hariIni = todayJakarta();
     // Hanya bulan berjalan: dari tanggal 1 bulan ini sampai hari ini (tidak
@@ -1179,9 +1249,14 @@ scheduleRouter.delete('/riwayat', async (req, res) => {
   try {
     const username = (req.query.username as string) || '';
     const tanggal = (req.query.tanggal as string) || '';
-    const cabang = (req.query.cabang as string) || '';
-    if (!username || !tanggal || !cabang) {
-      res.status(400).json({ error: 'username, tanggal, dan cabang wajib diisi.' });
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    if (!username || !tanggal) {
+      res.status(400).json({ error: 'username dan tanggal wajib diisi.' });
       return;
     }
     if (tanggal < todayJakarta()) {
@@ -1205,11 +1280,16 @@ scheduleRouter.delete('/riwayat', async (req, res) => {
 scheduleRouter.delete('/riwayat/advisor', async (req, res) => {
   try {
     const username = (req.query.username as string) || '';
-    const cabang = (req.query.cabang as string) || '';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const bulan = ((req.query.bulan as string) || '').padStart(2, '0');
     const tahun = parseInt((req.query.tahun as string) || '', 10);
-    if (!username || !cabang || !bulan || !tahun) {
-      res.status(400).json({ error: 'username, cabang, bulan, dan tahun wajib diisi.' });
+    if (!username || !bulan || !tahun) {
+      res.status(400).json({ error: 'username, bulan, dan tahun wajib diisi.' });
       return;
     }
     const awal = `${tahun}-${bulan}-01`;
@@ -1231,12 +1311,17 @@ scheduleRouter.delete('/riwayat/advisor', async (req, res) => {
  *  semua advisor sekaligus — dipakai tombol "Hapus Semua (Blast)". */
 scheduleRouter.delete('/riwayat/all', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const bulan = ((req.query.bulan as string) || '').padStart(2, '0');
     const tahun = parseInt((req.query.tahun as string) || '', 10);
     const petugas = (req.query.petugas as string) || '';
-    if (!cabang || !bulan || !tahun) {
-      res.status(400).json({ error: 'cabang, bulan, dan tahun wajib diisi.' });
+    if (!bulan || !tahun) {
+      res.status(400).json({ error: 'bulan dan tahun wajib diisi.' });
       return;
     }
     const awal = `${tahun}-${bulan}-01`;
@@ -1256,13 +1341,29 @@ scheduleRouter.delete('/riwayat/all', async (req, res) => {
  *  Jadwal yang tanggalnya sudah lewat tidak boleh dihapus. */
 scheduleRouter.delete('/riwayat/:id', async (req, res) => {
   try {
-    const id = req.params.id;
-    const rows = await fetchSupabase<any>(`tbtr_jadwal_bulanan?select=id,tanggal_jadwal&id=eq.${id}`).catch(() => []);
-    if (rows.length > 0 && rows[0].tanggal_jadwal < todayJakarta()) {
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.query.cabang || req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    const rows = await fetchSupabase<any>(
+      `tbtr_jadwal_bulanan?select=id,tanggal_jadwal,cabang&id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`
+    ).catch(() => []);
+    if (rows.length === 0) {
+      res.status(404).json({ error: 'Jadwal tidak ditemukan pada cabang ini.' });
+      return;
+    }
+    if (rows[0].tanggal_jadwal < todayJakarta()) {
       res.status(400).json({ error: 'Jadwal dengan tanggal yang sudah lewat tidak bisa dihapus.' });
       return;
     }
-    await deleteSupabase('tbtr_jadwal_bulanan', `id=eq.${id}`);
+    await deleteSupabase('tbtr_jadwal_bulanan', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1320,7 +1421,12 @@ const TEMPLATE_HEADERS = [
 
 scheduleRouter.get('/import-template', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const wb = new ExcelJS.Workbook();
 
     const ws = wb.addWorksheet('Template Jadwal');
@@ -1329,7 +1435,7 @@ scheduleRouter.get('/import-template', async (req, res) => {
     ws.addRow([
       '2025-01-15',
       'ADVISOR1',
-      '2T000123',
+      `${cabang}000123`,
       '(opsional, auto-terisi jika kosong & ditemukan)',
       cabang,
       '(opsional, auto-terisi jika kosong & ditemukan)',
@@ -1441,7 +1547,12 @@ scheduleRouter.get('/member-pilihan-template', async (_req, res) => {
 
 scheduleRouter.get('/member-pilihan', async (req, res) => {
   try {
-    const cabang = String(req.query.cabang || '2T').trim() || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const bulan = Math.min(Math.max(parseInt(String(req.query.bulan || new Date().getMonth() + 1), 10), 1), 12);
     const tahun = parseInt(String(req.query.tahun || new Date().getFullYear()), 10);
     const data = await getMemberPilihanPeriode(cabang, tahun, bulan);
@@ -1455,8 +1566,13 @@ scheduleRouter.get('/member-pilihan', async (req, res) => {
 
 scheduleRouter.post('/member-pilihan-upload', async (req, res) => {
   try {
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const { fileBase64 } = req.body || {};
-    const cabang = String(req.body?.cabang || '2T').trim() || '2T';
     const bulan = Math.min(Math.max(parseInt(String(req.body?.bulan || new Date().getMonth() + 1), 10), 1), 12);
     const tahun = parseInt(String(req.body?.tahun || new Date().getFullYear()), 10);
     if (!fileBase64) {
@@ -1579,12 +1695,17 @@ scheduleRouter.post('/member-pilihan-upload', async (req, res) => {
 
 scheduleRouter.post('/import', async (req, res) => {
   try {
-    const { fileBase64, cabang } = req.body || {};
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabangDefault = branch.cabang;
+    const { fileBase64 } = req.body || {};
     if (!fileBase64) {
       res.status(400).json({ error: 'File tidak ditemukan. Silakan pilih file .xlsx untuk diupload.' });
       return;
     }
-    const cabangDefault = cabang || '2T';
 
     const buffer = Buffer.from(String(fileBase64).split(',').pop() || '', 'base64');
     const wb = new ExcelJS.Workbook();
@@ -1878,7 +1999,12 @@ scheduleRouter.post('/tipe-member-upload', async (req, res) => {
 
 scheduleRouter.get('/spv-users', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const cleanCabang = cabang.trim().toUpperCase();
 
     // Ambil semua user dari tbmaster_user, lalu filter SPV & Admin
@@ -1973,7 +2099,12 @@ async function resolveCandidateCoords(
 
 scheduleRouter.get('/spv-candidates', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const bulan = ((req.query.bulan as string) || String(new Date().getMonth() + 1)).padStart(2, '0');
     const tahun = parseInt((req.query.tahun as string) || String(new Date().getFullYear()), 10);
     const spvUsername = (req.query.spv as string) || '';
@@ -2077,9 +2208,14 @@ scheduleRouter.get('/spv-candidates', async (req, res) => {
 
 scheduleRouter.post('/spv-generate', async (req, res) => {
   try {
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const {
       spvUsername,
-      cabang = '2T',
       bulan = String(new Date().getMonth() + 1).padStart(2, '0'),
       tahun = new Date().getFullYear(),
       tglDari,

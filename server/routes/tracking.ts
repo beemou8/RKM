@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { fetchSupabase, fetchSupabaseCached } from '../lib/supabase.js';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { distanceMeters } from '../lib/geo.js';
+import { resolveCabang } from '../lib/cabang.js';
 
 export const trackingRouter = Router();
 
@@ -24,7 +25,12 @@ trackingRouter.get('/', async (req, res) => {
       ? (req.query.tgl as string)
       : new Date().toISOString().slice(0, 10);
     const petugasFilter = (req.query.petugas as string) || '';
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const isSingleView = !!petugasFilter;
 
     // Cache daftar user aktif cabang selama 60 detik agar tidak membebani Supabase di setiap polling 30s

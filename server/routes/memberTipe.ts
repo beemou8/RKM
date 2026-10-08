@@ -3,6 +3,7 @@ import { queryLocal, getDbStatus } from '../lib/db.js';
 import { fetchSupabase, updateSupabase } from '../lib/supabase.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
 import ExcelJS from 'exceljs';
+import { resolveCabang } from '../lib/cabang.js';
 
 export const memberTipeRouter = Router();
 
@@ -141,7 +142,12 @@ async function queryTotals(cabang: string, memberPilihan: number): Promise<Membe
 
 memberTipeRouter.get('/', async (req, res) => {
   try {
-    const cabang = String(req.query.cabang || '2T').trim() || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const tipe = parseTipe(req.query.tipe);
     const limit = parseLimit(req.query.limit);
     const search = String(req.query.search || '').trim();
@@ -160,7 +166,12 @@ memberTipeRouter.get('/', async (req, res) => {
 
 memberTipeRouter.get('/export', async (req, res) => {
   try {
-    const cabang = String(req.query.cabang || '2T').trim() || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const { bulan, tahun } = parsePeriode(req);
     const pilihanCodes = await getPilihanCodes(cabang);
     const data = await queryMemberRows(cabang, 'semua', 500, pilihanCodes);
@@ -193,6 +204,12 @@ memberTipeRouter.get('/export', async (req, res) => {
 
 memberTipeRouter.post('/apply-tipe', async (req, res) => {
   try {
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const items: Array<{ kode_member: string; tipe: string }> = req.body?.items || [];
     if (!Array.isArray(items) || items.length === 0) {
       res.status(400).json({ error: 'Tidak ada member yang dipilih.' });
@@ -206,7 +223,11 @@ memberTipeRouter.post('/apply-tipe', async (req, res) => {
       const tipe = String(item.tipe || '').trim();
       if (!kode || !tipe) continue;
       try {
-        await updateSupabase('tbtr_jadwal_bulanan', `kode_member=eq.${encodeURIComponent(kode)}&tipe_member=neq.Member%20Pilihan`, { tipe_member: tipe });
+        await updateSupabase(
+          'tbtr_jadwal_bulanan',
+          `kode_member=eq.${encodeURIComponent(kode)}&cabang=eq.${encodeURIComponent(cabang)}&tipe_member=neq.Member%20Pilihan`,
+          { tipe_member: tipe }
+        );
         count++;
       } catch {
         gagal.push(kode);

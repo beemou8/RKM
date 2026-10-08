@@ -118,6 +118,7 @@ export interface CustomerCandidate {
   lng: number;
   tipe_member?: TipeMember | string | null;
   member_pilihan?: boolean;
+  dist_from_cabang_km?: number;
 }
 
 export interface KategoriCount {
@@ -214,6 +215,8 @@ export interface TrackingResponse {
 export interface ScheduleDay {
   tanggal: string;
   toko: CustomerCandidate[];
+  total_km?: number;
+  max_radius_km?: number;
 }
 
 export interface ScheduleResponse {
@@ -542,6 +545,29 @@ export interface DashboardSpvResponse {
   db_lokal_connected: boolean;
 }
 
+export interface KilometerMotorRow {
+  id?: number;
+  cabang: string;
+  tanggal: string;
+  username: string;
+  nama_petugas: string;
+  km_awal: number;
+  km_akhir: number;
+  km_motor: number;
+  km_gps: number;
+  selisih_km: number;
+  deviasi_persen: number;
+  status_validasi: 'VALID' | 'TOLERANSI' | 'ANOMALI';
+  keterangan?: string;
+  foto_odometer?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
 
-
-
+export interface GpsKmResult {
+  success: boolean;
+  username: string;
+  tanggal: string;
+  total_titik: number;
+  km_gps: number;
+}

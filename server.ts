@@ -12,6 +12,7 @@ import { surveiHargaRouter } from './server/routes/surveiHarga.js';
 import { memberStatusRouter } from './server/routes/memberStatus.js';
 import { memberParetoRouter } from './server/routes/memberPareto.js';
 import { masterRouter } from './server/routes/master.js';
+import { kilometerMotorRouter } from './server/routes/kilometerMotor.js';
 import { proxyRouter } from './server/routes/proxy.js';
 import { createConcurrencyLimiter, createRateLimiter, requireProxySecret, securityHeaders } from './server/lib/security.js';
 
@@ -63,7 +64,7 @@ async function startServer() {
 
   app.use('/api', apiLimiter);
   app.use((req, res, next) => {
-    const isExport = /^\/api\/(dashboard\/(?:export|by-call\/export|export-bulanan)|member\/export|member-tipe\/export|member-status\/export|survei-harga\/export|schedule\/(?:export|status-toko\/export)|member-pareto\/export)/.test(req.path);
+    const isExport = /^\/api\/(dashboard\/(?:export|by-call\/export|export-bulanan)|member\/export|member-tipe\/export|member-status\/export|survei-harga\/export|schedule\/(?:export|status-toko\/export)|member-pareto\/export|kilometer-motor\/export)/.test(req.path);
     if (!isExport) return next();
     return exportLimiter(req, res, () => exportConcurrency(req, res, next));
   });
@@ -91,6 +92,7 @@ async function startServer() {
   app.use('/api/survei-harga', surveiHargaRouter);
   app.use('/api/master', masterRouter);
   app.use('/api/member-pareto', memberParetoRouter);
+  app.use('/api/kilometer-motor', kilometerMotorRouter);
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

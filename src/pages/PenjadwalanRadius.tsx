@@ -43,7 +43,7 @@ import {
   type MemberPilihanUploadResult,
   type ImportScheduleResult,
 } from '../lib/api';
-import type { ScheduleResponse, ScheduleDay, CustomerCandidate, JadwalBulanan, StatusToko } from '../types';
+import type { ScheduleResponse, CustomerCandidate, JadwalBulanan, StatusToko } from '../types';
 import { Card, Select, Input, Button, EmptyState } from '../components/ui';
 import { FitBounds, numberedIcon, useRoadRoute, CartoTileLayer } from '../components/mapUtils';
 import { useTheme } from '../lib/theme';

@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs';
 import { fetchSupabaseAll } from '../lib/supabase.js';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
+import { resolveCabang } from '../lib/cabang.js';
 
 export const memberStatusRouter = Router();
 
@@ -143,7 +144,12 @@ async function buildMemberStatus(cabang: string, petugas: string, source: Member
 
 memberStatusRouter.get('/', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const petugas = (req.query.petugas as string) || '';
     const source = normalizeSource(req.query.source);
     res.json(await buildMemberStatus(cabang, petugas, source));
@@ -154,7 +160,12 @@ memberStatusRouter.get('/', async (req, res) => {
 
 memberStatusRouter.get('/export', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '2T';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const petugas = (req.query.petugas as string) || '';
     const source = normalizeSource(req.query.source);
     const data = await buildMemberStatus(cabang, petugas, source);

@@ -118,9 +118,10 @@ export function Button({
   variant = 'primary',
   className = '',
   ...rest
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'ghost' | 'success' | 'danger' }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'success' | 'danger' }) {
   const variants: Record<string, string> = {
     primary: 'bg-[var(--accent)] hover:bg-[var(--accent-strong)] text-[var(--text-on-accent)]',
+    secondary: 'bg-[var(--bg-hover)] hover:bg-[var(--bg-card-hover)] text-[var(--text-primary)] border border-[var(--border)]',
     ghost: 'bg-[var(--bg-hover)] hover:bg-[var(--bg-card-hover)] text-[var(--text-primary)] border border-[var(--border-strong)]',
     success: 'bg-emerald-600 hover:bg-emerald-500 text-white',
     danger: 'bg-rose-600 hover:bg-rose-500 text-white',

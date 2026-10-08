@@ -50,13 +50,22 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 {msg || 'Terjadi kesalahan tidak terduga pada komponen halaman ini.'}
               </p>
             )}
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors"
-            >
-              Muat Ulang Halaman
-            </button>
+            <div className="flex gap-2 justify-center">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Muat Ulang Halaman
+              </button>
+              <button
+                type="button"
+                onClick={() => { window.location.href = '/'; }}
+                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Ke Dashboard
+              </button>
+            </div>
           </div>
         </div>
       );
@@ -79,6 +88,8 @@ const SurveiHarga = lazy(() => import('./pages/SurveiHarga'));
 const StatusKunjunganMember = lazy(() => import('./pages/StatusKunjunganMember'));
 const MasterAlasanMenolak = lazy(() => import('./pages/MasterAlasanMenolak'));
 const MemberPareto = lazy(() => import('./pages/MemberPareto'));
+const KilometerMotor = lazy(() => import('./pages/KilometerMotor'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 function PageLoader() {
   return (
@@ -98,6 +109,7 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="dashboard-by-call" element={<DashboardByCall />} />
               <Route path="tracking" element={<Tracking />} />
+              <Route path="kilometer-motor" element={<KilometerMotor />} />
               <Route path="survei-harga" element={<SurveiHarga />} />
               <Route path="penjadwalan" element={<Penjadwalan />} />
               <Route path="penjadwalan-radius" element={<PenjadwalanRadius />} />
@@ -109,6 +121,10 @@ export default function App() {
               <Route path="toko-tutup" element={<TokoTutup />} />
               <Route path="master-alasan-menolak" element={<MasterAlasanMenolak />} />
               <Route path="member-pareto" element={<MemberPareto />} />
+              <Route path="403" element={<NotFound forbidden />} />
+              <Route path="forbidden" element={<NotFound forbidden />} />
+              <Route path="404" element={<NotFound />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
         </Suspense>

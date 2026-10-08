@@ -13,6 +13,8 @@ import type {
   SurveiHargaResponse,
   MemberStatusResponse,
   DashboardSpvResponse,
+  KilometerMotorRow,
+  GpsKmResult,
 } from '../types';
 
 async function getJson<T>(url: string): Promise<T> {
@@ -900,6 +902,65 @@ export function exportDashboardSpvUrl(
   });
   if (spv) q.set('spv', spv);
   return `/api/dashboard/spv/export?${q}`;
+}
+
+// ============================================================
+// Pencatatan Kilometer Motor (tbtr_kilometer_motor)
+// ============================================================
+
+export function fetchKilometerMotor(
+  cabang: string,
+  tglDari = '',
+  tglSampai = '',
+  petugas = ''
+): Promise<{ success: boolean; data: KilometerMotorRow[] }> {
+  const q = new URLSearchParams({ cabang });
+  if (tglDari) q.set('tgl_dari', tglDari);
+  if (tglSampai) q.set('tgl_sampai', tglSampai);
+  if (petugas) q.set('petugas', petugas);
+  return getJson(`/api/kilometer-motor?${q}`);
+}
+
+export function hitungGpsKm(
+  cabang: string,
+  tanggal: string,
+  username: string
+): Promise<GpsKmResult> {
+  const q = new URLSearchParams({ cabang, tanggal, username });
+  return getJson(`/api/kilometer-motor/hitung-gps?${q}`);
+}
+
+export async function saveKilometerMotor(payload: Partial<KilometerMotorRow>): Promise<{ success: boolean; data: KilometerMotorRow }> {
+  const res = await fetch('/api/kilometer-motor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Gagal menyimpan catatan kilometer motor');
+  return body;
+}
+
+export async function deleteKilometerMotor(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/kilometer-motor/${id}`, {
+    method: 'DELETE',
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || 'Gagal menghapus catatan kilometer motor');
+  return body;
+}
+
+export function exportKilometerMotorUrl(
+  cabang: string,
+  tglDari = '',
+  tglSampai = '',
+  petugas = ''
+): string {
+  const q = new URLSearchParams({ cabang });
+  if (tglDari) q.set('tgl_dari', tglDari);
+  if (tglSampai) q.set('tgl_sampai', tglSampai);
+  if (petugas) q.set('petugas', petugas);
+  return `/api/kilometer-motor/export?${q}`;
 }
 
 

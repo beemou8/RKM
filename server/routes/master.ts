@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { fetchSupabase, insertSupabase, updateSupabase, deleteSupabase } from '../lib/supabase.js';
+import { resolveCabang } from '../lib/cabang.js';
 
 export const masterRouter = Router();
 
@@ -20,7 +21,12 @@ function isValidTipe(v: any): v is Tipe {
 // ============================================================
 masterRouter.get('/alasan-menolak', async (req, res) => {
   try {
-    const cabang = (req.query.cabang as string) || '';
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const tipe = (req.query.tipe as string) || '';
 
     let query = 'master_alasan_menolak?select=*&order=cabang.asc,tipe.asc,kategori_alasan.asc';
@@ -39,7 +45,13 @@ masterRouter.get('/alasan-menolak', async (req, res) => {
 // ============================================================
 masterRouter.post('/alasan-menolak', async (req, res) => {
   try {
-    const { cabang, tipe, kategori_alasan } = req.body || {};
+    const branch = resolveCabang(req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    const { tipe, kategori_alasan } = req.body || {};
     if (!cabang || !tipe || !kategori_alasan) {
       res.status(400).json({ error: 'Cabang, tipe, dan kategori alasan wajib diisi.' });
       return;
@@ -80,12 +92,23 @@ masterRouter.post('/alasan-menolak', async (req, res) => {
 // ============================================================
 masterRouter.patch('/alasan-menolak/:id', async (req, res) => {
   try {
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.body?.cabang || req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
     const { kategori_alasan } = req.body || {};
     if (!kategori_alasan || !String(kategori_alasan).trim()) {
       res.status(400).json({ error: 'Kategori alasan wajib diisi.' });
       return;
     }
-    await updateSupabase('master_alasan_menolak', `id=eq.${req.params.id}`, {
+    await updateSupabase('master_alasan_menolak', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`, {
       kategori_alasan: String(kategori_alasan).trim(),
     });
     res.json({ success: true });
@@ -99,7 +122,18 @@ masterRouter.patch('/alasan-menolak/:id', async (req, res) => {
 // ============================================================
 masterRouter.delete('/alasan-menolak/:id', async (req, res) => {
   try {
-    await deleteSupabase('master_alasan_menolak', `id=eq.${req.params.id}`);
+    const id = String(req.params.id || '').trim();
+    if (!/^\d+$/.test(id)) {
+      res.status(400).json({ error: 'ID tidak valid. Harus berupa angka.' });
+      return;
+    }
+    const branch = resolveCabang(req.query.cabang || req.body?.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    await deleteSupabase('master_alasan_menolak', `id=eq.${id}&cabang=eq.${encodeURIComponent(cabang)}`);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

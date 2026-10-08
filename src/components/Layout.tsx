@@ -15,6 +15,7 @@ import {
   ClipboardList,
   PackageCheck,
   Compass,
+  Gauge,
 } from 'lucide-react';
 import { fetchDbStatus, fetchCabangList } from '../lib/api';
 import type { DbStatus } from '../types';
@@ -30,6 +31,7 @@ const NAV_GROUPS: Array<{
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
       { to: '/dashboard-by-call', label: 'Dashboard By Call', icon: Radio },
       { to: '/tracking', label: 'Tracking', icon: MapPinned },
+      { to: '/kilometer-motor', label: 'Kilometer Motor', icon: Gauge },
       { to: '/survei-harga', label: 'Survei Harga', icon: ClipboardList },
     ],
   },
