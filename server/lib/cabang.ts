@@ -11,8 +11,8 @@ export function getConfiguredCabang(): string {
 export function resolveCabang(requested: unknown):
   | { ok: true; cabang: string }
   | { ok: false; cabang: string; reason: string } {
-  const configured = getConfiguredCabang();
-  const incoming = String(requested ?? '').trim();
+  const configured = getConfiguredCabang().toUpperCase();
+  const incoming = String(requested ?? '').trim().toUpperCase();
 
   if (!configured) {
     if (!incoming) {
@@ -21,7 +21,12 @@ export function resolveCabang(requested: unknown):
     return { ok: true, cabang: incoming };
   }
 
-  if (incoming && incoming !== configured) {
+  const allowedList = String(process.env.CABANG_LIST || configured)
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+
+  if (incoming && incoming !== configured && !allowedList.includes(incoming)) {
     return {
       ok: false,
       cabang: configured,
@@ -29,5 +34,5 @@ export function resolveCabang(requested: unknown):
     };
   }
 
-  return { ok: true, cabang: configured };
+  return { ok: true, cabang: incoming || configured };
 }

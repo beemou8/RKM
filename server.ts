@@ -1,4 +1,11 @@
 import 'dotenv/config';
+import dns from 'node:dns';
+
+// Paksa urutan lookup IPv4 pertama untuk stabilitas koneksi fetch di jaringan Windows & VPN
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch {}
+
 import express from 'express';
 import compression from 'compression';
 import path from 'path';
@@ -13,7 +20,6 @@ import { memberStatusRouter } from './server/routes/memberStatus.js';
 import { memberParetoRouter } from './server/routes/memberPareto.js';
 import { masterRouter } from './server/routes/master.js';
 import { kilometerMotorRouter } from './server/routes/kilometerMotor.js';
-import { proxyRouter } from './server/routes/proxy.js';
 import { createConcurrencyLimiter, createRateLimiter, requireProxySecret, securityHeaders } from './server/lib/security.js';
 
 function envInt(name: string, fallback: number, min: number, max = Number.MAX_SAFE_INTEGER): number {
@@ -82,11 +88,9 @@ async function startServer() {
   const normalJson = express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' });
   const uploadJson = express.json({ limit: process.env.UPLOAD_JSON_BODY_LIMIT || '20mb' });
   app.use((req, res, next) => {
-    const largeUpload = /^\/api\/(?:schedule\/(?:import|member-pilihan-upload|tipe-member-upload)|member-pareto\/upload)$/.test(req.path) || req.path.startsWith('/api/relay/');
+    const largeUpload = /^\/api\/(?:schedule\/(?:import|member-pilihan-upload|tipe-member-upload)|member-pareto\/upload)/.test(req.path);
     return (largeUpload ? uploadJson : normalJson)(req, res, next);
   });
-
-  app.use('/api/relay', proxyRouter);
 
   app.get('/api/db-status', async (_req, res) => {
     res.json(getDbStatus());

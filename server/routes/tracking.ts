@@ -32,11 +32,14 @@ trackingRouter.get('/', async (req, res) => {
     }
     const cabang = branch.cabang;
     const isSingleView = !!petugasFilter;
+    const todayWib = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const isPastDate = tglFilter < todayWib;
+    const trackingTtl = isPastDate ? 600_000 : 15_000;
 
-    // Cache daftar user aktif cabang selama 60 detik agar tidak membebani Supabase di setiap polling 30s
+    // Cache daftar user aktif cabang selama 5 menit agar tidak membebani Supabase di setiap polling
     const listUsers = await fetchSupabaseCached<any>(
       `tbmaster_user?select=username,nama_lengkap&cabang=eq.${encodeURIComponent(cabang)}&is_active=eq.true&user_type=not.is.null`,
-      60_000
+      300_000
     ).catch(() => []);
     const activeUsernames = new Set((listUsers || []).map((u: any) => u.username));
 
@@ -49,19 +52,22 @@ trackingRouter.get('/', async (req, res) => {
     const petugasTidakAktif = isSingleView && !activeUsernames.has(petugasFilter);
 
     if (isSingleView && !petugasTidakAktif) {
-      allTrackingData = await fetchSupabase<any>(
-        `tbtr_tracking?select=${TRACKING_SELECT}&username=eq.${encodeURIComponent(petugasFilter)}&cabang=eq.${encodeURIComponent(cabang)}&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00&order=created_at.asc`
+      allTrackingData = await fetchSupabaseCached<any>(
+        `tbtr_tracking?select=${TRACKING_SELECT}&username=eq.${encodeURIComponent(petugasFilter)}&cabang=eq.${encodeURIComponent(cabang)}&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00&order=created_at.asc`,
+        trackingTtl
       ).catch(() => []);
 
-      rawRkm = await fetchSupabase<any>(
-        `tbtr_kunjungan_rkm?select=${VISIT_SELECT}&cabang=eq.${encodeURIComponent(cabang)}&username=eq.${encodeURIComponent(petugasFilter)}&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00`
+      rawRkm = await fetchSupabaseCached<any>(
+        `tbtr_kunjungan_rkm?select=${VISIT_SELECT}&cabang=eq.${encodeURIComponent(cabang)}&username=eq.${encodeURIComponent(petugasFilter)}&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00`,
+        trackingTtl
       ).catch(() => []);
     } else if (!isSingleView) {
       const usernames = Array.from(activeUsernames).filter(Boolean);
       const rawTracking =
         usernames.length > 0
-          ? await fetchSupabase<any>(
-              `tbtr_tracking?select=${TRACKING_SELECT}&username=in.(${usernames.join(',')})&cabang=eq.${encodeURIComponent(cabang)}&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00&order=created_at.desc`
+          ? await fetchSupabaseCached<any>(
+              `tbtr_tracking?select=${TRACKING_SELECT}&username=in.(${usernames.join(',')})&cabang=eq.${encodeURIComponent(cabang)}&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00&order=created_at.desc`,
+              trackingTtl
             ).catch(() => [])
           : [];
 
@@ -106,10 +112,11 @@ trackingRouter.get('/', async (req, res) => {
 
       rawRkm =
         usernames.length > 0
-          ? await fetchSupabase<any>(
+          ? await fetchSupabaseCached<any>(
               `tbtr_kunjungan_rkm?select=${VISIT_SELECT}&cabang=eq.${encodeURIComponent(cabang)}&username=in.(${usernames.join(
                 ','
-              )})&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00`
+              )})&created_at=gte.${tglFilter}T00:00:00%2B07:00&created_at=lte.${tglFilter}T23:59:59%2B07:00`,
+              trackingTtl
             ).catch(() => [])
           : [];
     }

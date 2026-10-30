@@ -11,9 +11,10 @@ import {
   RefreshCw,
   Search,
   Filter,
-  Info,
+  X,
+  AlertCircle,
 } from 'lucide-react';
-import { Card, CardHeader, StatCard, Badge, Button, Input, Select, EmptyState } from '../components/ui';
+import { Card, StatCard, Badge, Button, Input, Select, EmptyState } from '../components/ui';
 import type { LayoutContext } from '../components/Layout';
 import type { KilometerMotorRow } from '../types';
 import {
@@ -22,7 +23,7 @@ import {
   saveKilometerMotor,
   deleteKilometerMotor,
   exportKilometerMotorUrl,
-  fetchTracking,
+  fetchKilometerMotorAdvisors,
 } from '../lib/api';
 
 function todayStr() {
@@ -38,6 +39,13 @@ function firstDayOfMonthStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
+type ToastState = {
+  message: string;
+  type: 'success' | 'error' | 'info';
+} | null;
+
+type StatusFilterType = 'ALL' | 'VALID' | 'TOLERANSI' | 'ANOMALI';
+
 export default function KilometerMotor() {
   const { cabang } = useOutletContext<LayoutContext>();
 
@@ -45,6 +53,7 @@ export default function KilometerMotor() {
   const [tglDari, setTglDari] = useState(firstDayOfMonthStr());
   const [tglSampai, setTglSampai] = useState(todayStr());
   const [petugasFilter, setPetugasFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilterType>('ALL');
   const [search, setSearch] = useState('');
 
   // Data state
@@ -63,15 +72,29 @@ export default function KilometerMotor() {
   const [formKeterangan, setFormKeterangan] = useState('');
   const [fetchingGps, setFetchingGps] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
 
-  // Load advisor list from tracking API
+  // UI helpers
+  const [toast, setToast] = useState<ToastState>(null);
+  const [deleteTarget, setDeleteTarget] = useState<KilometerMotorRow | null>(null);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+  };
+
+  // Load advisor list langsung dari endpoint khusus yang ringan dan dicache
   useEffect(() => {
     if (!cabang) return;
-    fetchTracking(todayStr(), '', cabang)
+    fetchKilometerMotorAdvisors(cabang)
       .then((res) => {
-        if (res.advisor_list && Array.isArray(res.advisor_list)) {
-          setAdvisorList(res.advisor_list);
+        if (res.data && Array.isArray(res.data)) {
+          setAdvisorList(res.data);
         }
       })
       .catch(() => {});
@@ -87,7 +110,7 @@ export default function KilometerMotor() {
         setDataList(res.data || []);
       })
       .catch((err) => {
-        setError(err.message || 'Gagal memuat catatan kilometer');
+        setError(err.message || 'Gagal memuat catatan kilometer motor');
       })
       .finally(() => setLoading(false));
   }, [cabang, tglDari, tglSampai, petugasFilter]);
@@ -146,17 +169,23 @@ export default function KilometerMotor() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!cabang) return;
+
     if (!formTanggal || !formPetugas) {
-      alert('Pilih tanggal dan petugas terlebih dahulu.');
+      showToast('Pilih tanggal dan advisor terlebih dahulu.', 'error');
       return;
     }
+
     if (kmAkhirNum <= kmAwalNum && kmAkhirNum > 0) {
-      alert('KM Akhir harus lebih besar daripada KM Awal.');
+      showToast('KM Pulang harus lebih besar daripada KM Berangkat.', 'error');
+      return;
+    }
+
+    if (kmMotorTotal <= 0) {
+      showToast('Total kilometer motor harus lebih besar dari 0 km.', 'error');
       return;
     }
 
     setSubmitting(true);
-    setSubmitSuccess(null);
     try {
       const selectedAdv = advisorList.find((a) => a.username === formPetugas);
       await saveKilometerMotor({
@@ -170,41 +199,51 @@ export default function KilometerMotor() {
         keterangan: formKeterangan,
       });
 
-      setSubmitSuccess(`Catatan kilometer untuk ${formPetugas} (${formTanggal}) berhasil disimpan!`);
+      showToast(`Catatan ${formPetugas} (${formTanggal}) tersimpan.`, 'success');
       setFormKmAwal('');
       setFormKmAkhir('');
       setFormKeterangan('');
       loadData();
-      setTimeout(() => setSubmitSuccess(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Gagal menyimpan catatan');
+      showToast(err.message || 'Gagal menyimpan catatan', 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id?: number) => {
-    if (!id) return;
-    if (!confirm('Yakin ingin menghapus catatan kilometer ini?')) return;
+  // Delete handler with confirmation modal
+  const confirmDelete = async () => {
+    if (!deleteTarget?.id) return;
     try {
-      await deleteKilometerMotor(id);
+      await deleteKilometerMotor(deleteTarget.id);
+      showToast('Catatan kilometer berhasil dihapus.', 'success');
+      setDeleteTarget(null);
       loadData();
     } catch (err: any) {
-      alert(err.message || 'Gagal menghapus');
+      showToast(err.message || 'Gagal menghapus catatan', 'error');
     }
   };
 
   // Filtered table data
   const filteredData = useMemo(() => {
+    let result = dataList;
+
+    if (statusFilter !== 'ALL') {
+      result = result.filter((r) => r.status_validasi === statusFilter);
+    }
+
     const q = search.trim().toLowerCase();
-    if (!q) return dataList;
-    return dataList.filter(
-      (r) =>
-        r.username.toLowerCase().includes(q) ||
-        (r.nama_petugas && r.nama_petugas.toLowerCase().includes(q)) ||
-        (r.keterangan && r.keterangan.toLowerCase().includes(q))
-    );
-  }, [dataList, search]);
+    if (q) {
+      result = result.filter(
+        (r) =>
+          r.username.toLowerCase().includes(q) ||
+          (r.nama_petugas && r.nama_petugas.toLowerCase().includes(q)) ||
+          (r.keterangan && r.keterangan.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [dataList, statusFilter, search]);
 
   // Aggregate stats
   const totalKmMotor = useMemo(() => {
@@ -219,36 +258,79 @@ export default function KilometerMotor() {
     return dataList.filter((r) => r.status_validasi === 'VALID').length;
   }, [dataList]);
 
-  const countAnomali = useMemo(() => {
-    return dataList.filter((r) => r.status_validasi === 'ANOMALI' || r.status_validasi === 'TOLERANSI').length;
+  const countToleransi = useMemo(() => {
+    return dataList.filter((r) => r.status_validasi === 'TOLERANSI').length;
   }, [dataList]);
 
+  const countAnomali = useMemo(() => {
+    return dataList.filter((r) => r.status_validasi === 'ANOMALI').length;
+  }, [dataList]);
+
+  // Percentage of GPS vs physical odometer
+  const maxMeterKm = Math.max(kmMotorTotal, formKmGps, 1);
+  const motorMeterPct = Math.min(100, Math.round((kmMotorTotal / maxMeterKm) * 100));
+  const gpsMeterPct = Math.min(100, Math.round((formKmGps / maxMeterKm) * 100));
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-2.5 rounded-xl shadow-xl border text-xs font-medium bg-[var(--bg-card)] border-[var(--border-strong)] text-[var(--text-primary)] animate-in fade-in slide-in-from-bottom-2">
+          {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
+          {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
+          {toast.type === 'info' && <Gauge className="w-4 h-4 text-blue-400 shrink-0" />}
+          <span>{toast.message}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="ml-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="w-full max-w-sm rounded-xl bg-[var(--bg-card)] border border-[var(--border)] p-5 shadow-2xl">
+            <h3 className="text-sm font-bold text-[var(--text-primary)] mb-2 flex items-center gap-2">
+              <Trash2 className="w-4 h-4 text-rose-400" />
+              Hapus Catatan Kilometer
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] mb-4">
+              Hapus catatan {deleteTarget.nama_petugas || deleteTarget.username} tanggal {deleteTarget.tanggal} ({deleteTarget.km_motor} km)?
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+                Batal
+              </Button>
+              <Button variant="danger" onClick={confirmDelete}>
+                Hapus
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Page Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500">
-              <Gauge className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-xl font-display font-semibold text-[var(--text-primary)]">
-                Pencatatan Kilometer Motor
-              </h1>
-              <p className="text-xs text-[var(--text-muted)]">
-                Validasi klaim odometer motor advisor terhadap total kilometer GPS tracking riil &bull; Cabang{' '}
-                <span className="font-semibold text-[var(--accent)]">{cabang}</span>
-              </p>
-            </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500">
+            <Gauge className="w-4.5 h-4.5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-[var(--text-primary)]">
+              Kilometer Motor
+            </h1>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={loadData} disabled={loading} title="Refresh data">
+          <Button variant="ghost" onClick={loadData} disabled={loading} title="Perbarui data">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+
           <a
             href={exportKilometerMotorUrl(cabang, tglDari, tglSampai, petugasFilter)}
             target="_blank"
@@ -263,81 +345,66 @@ export default function KilometerMotor() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           icon={Gauge}
-          label="Total KM Fisik Motor"
+          label="Total KM Fisik"
           value={`${totalKmMotor.toLocaleString('id-ID')} km`}
-          sub="Akumulasi odometer fisik"
           tone="blue"
         />
         <StatCard
           icon={Navigation}
-          label="Total KM GPS Tracking"
+          label="Total KM GPS"
           value={`${totalKmGps.toLocaleString('id-ID')} km`}
-          sub="Rekaman sinyal GPS riil"
           tone="slate"
         />
         <StatCard
           icon={CheckCircle2}
-          label="Valid / Wajar"
+          label="Klaim Wajar"
           value={countValid}
-          sub="Deviasi wajar (≤ 15%)"
           tone="emerald"
         />
         <StatCard
           icon={AlertTriangle}
-          label="Perlu Verifikasi"
+          label="Perlu Cek SPV"
           value={countAnomali}
-          sub="Toleransi sedang & anomali"
           tone={countAnomali > 0 ? 'rose' : 'slate'}
         />
       </div>
 
-      {/* Form Input Catatan Kilometer Baru */}
-      <Card className="p-5 border-blue-500/20 bg-blue-500/[0.02]">
-        <div className="flex items-center justify-between pb-3 mb-4 border-b border-[var(--border)]">
-          <h2 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+      {/* Form Input Odometer */}
+      <Card className="p-4 border-blue-500/20 bg-blue-500/[0.015]">
+        <div className="flex items-center justify-between pb-3 mb-3 border-b border-[var(--border)]">
+          <h2 className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-2 uppercase tracking-wider">
             <PlusCircle className="w-4 h-4 text-blue-500" />
-            Input Catatan Odometer Motor Harian
+            Input Catatan Odometer
           </h2>
-          <span className="text-[11px] text-[var(--text-muted)] flex items-center gap-1">
-            <Info className="w-3.5 h-3.5 text-blue-400" />
-            KM GPS otomatis dihitung dari titik GPS hari terpilih
-          </span>
         </div>
 
-        {submitSuccess && (
-          <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            {submitSuccess}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div>
-              <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
-                Tanggal Operasional
+              <label className="block text-[11px] font-semibold text-[var(--text-secondary)] mb-1">
+                Tanggal
               </label>
               <Input
                 type="date"
                 value={formTanggal}
                 onChange={(e) => setFormTanggal(e.target.value)}
                 required
-                className="w-full"
+                className="w-full text-xs"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
+              <label className="block text-[11px] font-semibold text-[var(--text-secondary)] mb-1">
                 Petugas / Advisor
               </label>
               <Select
                 value={formPetugas}
                 onChange={(e) => setFormPetugas(e.target.value)}
                 required
-                className="w-full"
+                className="w-full text-xs"
               >
                 <option value="">-- Pilih Advisor --</option>
                 {advisorList.map((adv) => (
@@ -349,8 +416,8 @@ export default function KilometerMotor() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
-                KM Awal (Berangkat)
+              <label className="block text-[11px] font-semibold text-[var(--text-secondary)] mb-1">
+                KM Berangkat
               </label>
               <Input
                 type="number"
@@ -360,13 +427,13 @@ export default function KilometerMotor() {
                 value={formKmAwal}
                 onChange={(e) => setFormKmAwal(e.target.value)}
                 required
-                className="w-full font-mono"
+                className="w-full font-mono text-xs"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
-                KM Akhir (Pulang)
+              <label className="block text-[11px] font-semibold text-[var(--text-secondary)] mb-1">
+                KM Pulang
               </label>
               <Input
                 type="number"
@@ -376,90 +443,190 @@ export default function KilometerMotor() {
                 value={formKmAkhir}
                 onChange={(e) => setFormKmAkhir(e.target.value)}
                 required
-                className="w-full font-mono"
+                className="w-full font-mono text-xs"
               />
             </div>
           </div>
 
-          {/* Live Validation Bar */}
-          <div className="p-3.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border)] flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-6 text-xs">
-              <div>
-                <span className="text-[var(--text-faint)] block text-[10px]">KM FISIK MOTOR</span>
-                <span className="font-mono font-semibold text-sm text-[var(--text-primary)]">
-                  {kmMotorTotal > 0 ? `${kmMotorTotal} km` : '-'}
-                </span>
-              </div>
+          {/* Real-time Calculation Bar */}
+          <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] space-y-2">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <span className="text-[var(--text-faint)] block text-[10px] font-semibold uppercase">
+                    KM Motor
+                  </span>
+                  <span className="font-mono font-bold text-sm text-blue-400">
+                    {kmMotorTotal > 0 ? `${kmMotorTotal.toLocaleString('id-ID')} km` : '-'}
+                  </span>
+                </div>
 
-              <div>
-                <span className="text-[var(--text-faint)] block text-[10px] flex items-center gap-1">
-                  KM GPS TRACKING
-                  {fetchingGps && <RefreshCw className="w-2.5 h-2.5 animate-spin text-blue-400" />}
-                </span>
-                <span className="font-mono font-semibold text-sm text-blue-400">
-                  {formKmGps > 0 ? `${formKmGps} km` : '0.0 km'}
-                  <span className="text-[10px] text-[var(--text-faint)] ml-1">({formGpsPoints} titik)</span>
-                </span>
-              </div>
+                <div>
+                  <span className="text-[var(--text-faint)] block text-[10px] font-semibold uppercase flex items-center gap-1">
+                    KM GPS
+                    {fetchingGps && <RefreshCw className="w-2.5 h-2.5 animate-spin text-emerald-400" />}
+                  </span>
+                  <span className="font-mono font-bold text-sm text-emerald-400">
+                    {formKmGps > 0 ? `${formKmGps.toLocaleString('id-ID')} km` : '0.0 km'}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-faint)] block">
+                    {formGpsPoints} titik
+                  </span>
+                </div>
 
-              <div>
-                <span className="text-[var(--text-faint)] block text-[10px]">SELISIH JARAK</span>
-                <span className="font-mono font-semibold text-sm text-[var(--text-primary)]">
-                  {kmMotorTotal > 0 ? `${selisihKm} km (${deviasiPersen}%)` : '-'}
-                </span>
-              </div>
+                <div>
+                  <span className="text-[var(--text-faint)] block text-[10px] font-semibold uppercase">
+                    Selisih
+                  </span>
+                  <span className="font-mono font-bold text-sm text-[var(--text-primary)]">
+                    {kmMotorTotal > 0 ? `${selisihKm.toLocaleString('id-ID')} km` : '-'}
+                  </span>
+                  {kmMotorTotal > 0 && (
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      {deviasiPersen}%
+                    </span>
+                  )}
+                </div>
 
-              <div>
-                <span className="text-[var(--text-faint)] block text-[10px]">STATUS EVALUASI</span>
-                {kmMotorTotal > 0 ? (
-                  validasiStatus === 'VALID' ? (
-                    <Badge tone="emerald">🟢 VALID (WAJAR)</Badge>
-                  ) : validasiStatus === 'TOLERANSI' ? (
-                    <Badge tone="amber">🟡 TOLERANSI (GANG/MACET)</Badge>
+                <div>
+                  <span className="text-[var(--text-faint)] block text-[10px] font-semibold uppercase mb-1">
+                    Status
+                  </span>
+                  {kmMotorTotal > 0 ? (
+                    validasiStatus === 'VALID' ? (
+                      <Badge tone="emerald">WAJAR</Badge>
+                    ) : validasiStatus === 'TOLERANSI' ? (
+                      <Badge tone="amber">TOLERANSI</Badge>
+                    ) : (
+                      <Badge tone="rose">CEK SPV</Badge>
+                    )
                   ) : (
-                    <Badge tone="rose">🔴 ANOMALI (PERLU CEK)</Badge>
-                  )
-                ) : (
-                  <span className="text-[10px] text-[var(--text-faint)]">Menunggu input KM</span>
-                )}
+                    <span className="text-[11px] text-[var(--text-faint)]">-</span>
+                  )}
+                </div>
               </div>
+
+              {kmMotorTotal > 0 && (
+                <div className="w-full lg:w-64 p-2.5 rounded-lg bg-[var(--wash-1)] border border-[var(--border)] space-y-1.5">
+                  <div>
+                    <div className="flex justify-between text-[10px] text-[var(--text-muted)] mb-0.5">
+                      <span>Fisik</span>
+                      <span className="font-mono text-blue-400">{kmMotorTotal} km</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all"
+                        style={{ width: `${motorMeterPct}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-[10px] text-[var(--text-muted)] mb-0.5">
+                      <span>GPS</span>
+                      <span className="font-mono text-emerald-400">{formKmGps} km</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-[var(--border)] overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full transition-all"
+                        style={{ width: `${gpsMeterPct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="flex-1 min-w-[200px]">
-              <Input
-                placeholder="Catatan / keterangan perjalanan (opsional)"
-                value={formKeterangan}
-                onChange={(e) => setFormKeterangan(e.target.value)}
-                className="w-full text-xs"
-              />
-            </div>
+            <div className="pt-2 border-t border-[var(--border)] flex flex-col sm:flex-row items-center gap-2">
+              <div className="flex-1 w-full">
+                <Input
+                  placeholder="Catatan (opsional)"
+                  value={formKeterangan}
+                  onChange={(e) => setFormKeterangan(e.target.value)}
+                  className="w-full text-xs"
+                />
+              </div>
 
-            <Button type="submit" variant="primary" disabled={submitting || kmMotorTotal <= 0}>
-              <PlusCircle className="w-3.5 h-3.5" />
-              {submitting ? 'Menyimpan...' : 'Simpan Catatan'}
-            </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={submitting || kmMotorTotal <= 0}
+                className="w-full sm:w-auto shrink-0"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                {submitting ? 'Menyimpan...' : 'Simpan'}
+              </Button>
+            </div>
           </div>
         </form>
       </Card>
 
-      {/* Tabel Riwayat & Filter */}
-      <Card className="p-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 mb-4 border-b border-[var(--border)]">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-[var(--text-muted)]" />
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-              Riwayat Kilometer Motor ({filteredData.length})
+      {/* Tabel Data & Filter */}
+      <Card className="p-4">
+        <div className="flex flex-col gap-3 pb-3 mb-3 border-b border-[var(--border)]">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <h3 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">
+              Riwayat Kilometer ({filteredData.length})
             </h3>
+
+            {/* Quick Status Filter Tabs */}
+            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-[var(--wash-1)] border border-[var(--border)] overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ALL')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+                  statusFilter === 'ALL'
+                    ? 'bg-[var(--bg-card)] text-[var(--text-primary)] shadow-xs'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                Semua ({dataList.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('VALID')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+                  statusFilter === 'VALID'
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : 'text-[var(--text-muted)] hover:text-emerald-400'
+                }`}
+              >
+                Wajar ({countValid})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('TOLERANSI')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+                  statusFilter === 'TOLERANSI'
+                    ? 'bg-amber-500/20 text-amber-400'
+                    : 'text-[var(--text-muted)] hover:text-amber-400'
+                }`}
+              >
+                Toleransi ({countToleransi})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter('ANOMALI')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer shrink-0 ${
+                  statusFilter === 'ANOMALI'
+                    ? 'bg-rose-500/20 text-rose-400'
+                    : 'text-[var(--text-muted)] hover:text-rose-400'
+                }`}
+              >
+                Cek SPV ({countAnomali})
+              </button>
+            </div>
           </div>
 
+          {/* Filter Inputs */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+            <div className="relative flex-1 min-w-[160px]">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-faint)]" />
               <Input
-                placeholder="Cari petugas / catatan..."
+                placeholder="Cari advisor / catatan..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 w-44 text-xs"
+                className="pl-8 w-full text-xs"
               />
             </div>
 
@@ -476,24 +643,27 @@ export default function KilometerMotor() {
               ))}
             </Select>
 
-            <Input
-              type="date"
-              value={tglDari}
-              onChange={(e) => setTglDari(e.target.value)}
-              className="w-36 text-xs"
-            />
-            <span className="text-xs text-[var(--text-faint)]">s/d</span>
-            <Input
-              type="date"
-              value={tglSampai}
-              onChange={(e) => setTglSampai(e.target.value)}
-              className="w-36 text-xs"
-            />
+            <div className="flex items-center gap-1">
+              <Input
+                type="date"
+                value={tglDari}
+                onChange={(e) => setTglDari(e.target.value)}
+                className="w-32 text-xs"
+              />
+              <span className="text-xs text-[var(--text-faint)]">-</span>
+              <Input
+                type="date"
+                value={tglSampai}
+                onChange={(e) => setTglSampai(e.target.value)}
+                className="w-32 text-xs"
+              />
+            </div>
           </div>
         </div>
 
         {error && (
-          <div className="p-3 mb-4 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
+          <div className="p-2.5 mb-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
             {error}
           </div>
         )}
@@ -503,73 +673,78 @@ export default function KilometerMotor() {
             icon={Gauge}
             text={
               loading
-                ? 'Memuat catatan kilometer motor...'
-                : 'Belum ada data catatan kilometer motor pada periode ini.'
+                ? 'Memuat data kilometer...'
+                : 'Tidak ada data kilometer pada filter ini.'
             }
           />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="border-b border-[var(--border)] text-[var(--text-muted)]">
-                  <th className="py-2.5 px-3 font-semibold">Tanggal</th>
-                  <th className="py-2.5 px-3 font-semibold">Petugas / Advisor</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">KM Awal</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">KM Akhir</th>
-                  <th className="py-2.5 px-3 font-semibold text-right text-blue-400">Total KM Motor</th>
-                  <th className="py-2.5 px-3 font-semibold text-right text-emerald-400">Total KM GPS</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">Selisih</th>
-                  <th className="py-2.5 px-3 font-semibold text-center">Deviasi</th>
-                  <th className="py-2.5 px-3 font-semibold text-center">Status</th>
-                  <th className="py-2.5 px-3 font-semibold">Keterangan</th>
-                  <th className="py-2.5 px-3 font-semibold text-center">Aksi</th>
+                <tr className="border-b border-[var(--border)] text-[var(--text-muted)] bg-[var(--wash-1)]">
+                  <th className="py-2 px-3 font-semibold">Tanggal</th>
+                  <th className="py-2 px-3 font-semibold">Advisor</th>
+                  <th className="py-2 px-3 font-semibold text-right">KM Awal</th>
+                  <th className="py-2 px-3 font-semibold text-right">KM Akhir</th>
+                  <th className="py-2 px-3 font-semibold text-right text-blue-400">KM Motor</th>
+                  <th className="py-2 px-3 font-semibold text-right text-emerald-400">KM GPS</th>
+                  <th className="py-2 px-3 font-semibold text-right">Selisih</th>
+                  <th className="py-2 px-3 font-semibold text-center">Deviasi</th>
+                  <th className="py-2 px-3 font-semibold text-center">Status</th>
+                  <th className="py-2 px-3 font-semibold">Catatan</th>
+                  <th className="py-2 px-3 font-semibold text-center">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--text-secondary)]">
                 {filteredData.map((row) => (
-                  <tr key={row.id || `${row.tanggal}-${row.username}`} className="hover:bg-[var(--bg-hover)] transition-colors">
-                    <td className="py-2.5 px-3 font-mono font-medium">{row.tanggal}</td>
-                    <td className="py-2.5 px-3">
+                  <tr
+                    key={row.id || `${row.tanggal}-${row.username}`}
+                    className="hover:bg-[var(--bg-hover)] transition-colors"
+                  >
+                    <td className="py-2 px-3 font-mono text-[var(--text-primary)]">
+                      {row.tanggal}
+                    </td>
+                    <td className="py-2 px-3">
                       <div className="font-semibold text-[var(--text-primary)]">
                         {row.nama_petugas || row.username}
                       </div>
                       <div className="text-[10px] text-[var(--text-faint)] font-mono">{row.username}</div>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-[var(--text-muted)]">
+                    <td className="py-2 px-3 text-right font-mono text-[var(--text-muted)]">
                       {Number(row.km_awal).toLocaleString('id-ID', { minimumFractionDigits: 1 })}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-[var(--text-muted)]">
+                    <td className="py-2 px-3 text-right font-mono text-[var(--text-muted)]">
                       {Number(row.km_akhir).toLocaleString('id-ID', { minimumFractionDigits: 1 })}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-blue-400">
+                    <td className="py-2 px-3 text-right font-mono font-bold text-blue-400">
                       {Number(row.km_motor).toLocaleString('id-ID', { minimumFractionDigits: 1 })} km
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-emerald-400">
+                    <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
                       {Number(row.km_gps).toLocaleString('id-ID', { minimumFractionDigits: 1 })} km
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono">
+                    <td className="py-2 px-3 text-right font-mono font-semibold text-[var(--text-primary)]">
                       {Number(row.selisih_km).toLocaleString('id-ID', { minimumFractionDigits: 1 })} km
                     </td>
-                    <td className="py-2.5 px-3 text-center font-mono">
+                    <td className="py-2 px-3 text-center font-mono">
                       {row.deviasi_persen}%
                     </td>
-                    <td className="py-2.5 px-3 text-center">
+                    <td className="py-2 px-3 text-center">
                       {row.status_validasi === 'VALID' ? (
-                        <Badge tone="emerald">VALID</Badge>
+                        <Badge tone="emerald">WAJAR</Badge>
                       ) : row.status_validasi === 'TOLERANSI' ? (
                         <Badge tone="amber">TOLERANSI</Badge>
                       ) : (
-                        <Badge tone="rose">ANOMALI</Badge>
+                        <Badge tone="rose">CEK SPV</Badge>
                       )}
                     </td>
-                    <td className="py-2.5 px-3 max-w-[200px] truncate text-[11px] text-[var(--text-faint)]">
+                    <td className="py-2 px-3 max-w-[200px] truncate text-[11px] text-[var(--text-muted)]" title={row.keterangan || undefined}>
                       {row.keterangan || '-'}
                     </td>
-                    <td className="py-2.5 px-3 text-center">
+                    <td className="py-2 px-3 text-center">
                       <button
-                        onClick={() => handleDelete(row.id)}
-                        className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors"
-                        title="Hapus catatan"
+                        onClick={() => setDeleteTarget(row)}
+                        className="p-1 rounded text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                        title="Hapus"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -577,6 +752,26 @@ export default function KilometerMotor() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="border-t-2 border-[var(--border)] bg-[var(--wash-1)] text-xs font-semibold">
+                <tr>
+                  <td colSpan={4} className="py-2 px-3 text-[var(--text-muted)]">
+                    Total ({filteredData.length} baris)
+                  </td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-blue-400">
+                    {filteredData
+                      .reduce((sum, r) => sum + (Number(r.km_motor) || 0), 0)
+                      .toLocaleString('id-ID', { minimumFractionDigits: 1 })}{' '}
+                    km
+                  </td>
+                  <td className="py-2 px-3 text-right font-mono font-bold text-emerald-400">
+                    {filteredData
+                      .reduce((sum, r) => sum + (Number(r.km_gps) || 0), 0)
+                      .toLocaleString('id-ID', { minimumFractionDigits: 1 })}{' '}
+                    km
+                  </td>
+                  <td colSpan={5} className="py-2 px-3" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
@@ -584,3 +779,4 @@ export default function KilometerMotor() {
     </div>
   );
 }
+

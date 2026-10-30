@@ -422,7 +422,7 @@ dashboardRouter.get('/cabang-list', async (_req, res) => {
       return;
     }
 
-    const rows = await fetchSupabase<any>(`tbmaster_user?select=cabang`).catch(() => []);
+    const rows = await fetchSupabaseCached<any>(`tbmaster_user?select=cabang`, 3_600_000).catch(() => []);
     const cabangSet = Array.from(new Set((rows || []).map((r: any) => r.cabang).filter(Boolean))).sort();
     res.json({ cabang: cabangSet, default: cabangSet[0] || '', source: 'supabase' });
   } catch (err: any) {
@@ -887,9 +887,12 @@ dashboardRouter.get('/export-bulanan', async (req, res) => {
     }
 
     // Member Pilihan adalah master aktif; satu member tetap bisa sekaligus Sleeper / Belum Aktivasi.
-    const pilihanRowsBulan = await fetchSupabase<any>(
-      `tbtr_member_pilihan?select=kode_member&cabang=eq.${encodeURIComponent(cabang)}&kode_member=in.(${kodeMemberDikunjungi.join(',')})`
-    ).catch(() => []);
+    const pilihanRowsBulan = kodeMemberDikunjungi.length > 0
+      ? await fetchSupabaseCached<any>(
+          `tbtr_member_pilihan?select=kode_member&cabang=eq.${encodeURIComponent(cabang)}&kode_member=in.(${kodeMemberDikunjungi.join(',')})`,
+          60_000
+        ).catch(() => [])
+      : [];
     const memberPilihanSet = new Set<string>();
     for (const r of pilihanRowsBulan || []) {
       const kode = String(r.kode_member || '').trim().toUpperCase();

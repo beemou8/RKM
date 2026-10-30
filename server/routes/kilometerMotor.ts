@@ -1,11 +1,31 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { fetchSupabase, upsertManySupabase, deleteSupabase } from '../lib/supabase.js';
+import { fetchSupabase, fetchSupabaseCached, upsertManySupabase, deleteSupabase } from '../lib/supabase.js';
 import { resolveCabang } from '../lib/cabang.js';
 import { distanceMeters } from '../lib/geo.js';
 import { FILL, sendWorkbook, styleHeaderRow, thinBorder } from '../lib/excel.js';
 
 export const kilometerMotorRouter = Router();
+
+// GET /advisors: Ringan dan instan (hanya username & nama lengkap, dicache 5 menit)
+kilometerMotorRouter.get('/advisors', async (req, res) => {
+  try {
+    const branch = resolveCabang(req.query.cabang);
+    if (!branch.ok) {
+      res.status(403).json({ error: branch.reason, cabang: branch.cabang });
+      return;
+    }
+    const cabang = branch.cabang;
+    const users = await fetchSupabaseCached<any>(
+      `tbmaster_user?select=username,nama_lengkap&cabang=eq.${encodeURIComponent(cabang)}&is_active=eq.true&user_type=not.is.null&order=nama_lengkap.asc`,
+      300_000
+    ).catch(() => []);
+
+    res.json({ success: true, data: users || [] });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || 'Gagal mengambil daftar advisor' });
+  }
+});
 
 // 1. GET: Ambil daftar catatan kilometer motor
 kilometerMotorRouter.get('/', async (req, res) => {

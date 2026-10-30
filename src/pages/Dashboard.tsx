@@ -469,7 +469,7 @@ export function PerformanceDashboard({
             <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
             <div>
               <p className="text-sm font-semibold text-[var(--text-primary)]">Sedang memuat data...</p>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">Mengambil data melalui relay server. Mohon tunggu.</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">Sinkronisasi data kunjungan & omset lapangan. Mohon tunggu...</p>
             </div>
           </div>
         </Card>

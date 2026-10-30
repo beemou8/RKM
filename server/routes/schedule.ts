@@ -1536,6 +1536,37 @@ function excelCellToString(cell: ExcelJS.CellValue): string {
   return String(cell).trim();
 }
 
+function parseDateCell(cell: ExcelJS.CellValue): string | null {
+  if (cell === null || cell === undefined) return null;
+  if (cell instanceof Date) {
+    const y = cell.getFullYear();
+    const m = String(cell.getMonth() + 1).padStart(2, '0');
+    const d = String(cell.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof cell === 'number' && cell > 30000 && cell < 60000) {
+    const jsDate = new Date(Math.round((cell - 25569) * 86400 * 1000));
+    const y = jsDate.getUTCFullYear();
+    const m = String(jsDate.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(jsDate.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const str = excelCellToString(cell);
+  if (!str) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(str)) return str.replace(/\//g, '-');
+  const dmySlash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(str);
+  if (dmySlash) {
+    return `${dmySlash[3]}-${dmySlash[2].padStart(2, '0')}-${dmySlash[1].padStart(2, '0')}`;
+  }
+  const dmyDash = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(str);
+  if (dmyDash) {
+    return `${dmyDash[3]}-${dmyDash[2].padStart(2, '0')}-${dmyDash[1].padStart(2, '0')}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  return null;
+}
+
 
 // ============================================================
 // Member Pilihan bulanan (upload sebelum generate otomatis)
@@ -1752,7 +1783,7 @@ scheduleRouter.post('/import', async (req, res) => {
       return;
     }
 
-    const blockedCodes = await getBlockedMemberCodes();
+    const blockedCodes = await getBlockedMemberCodes().catch(() => new Set<string>());
 
     type ParsedRow = {
       rowNum: number;
@@ -1770,26 +1801,26 @@ scheduleRouter.post('/import', async (req, res) => {
 
     ws.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      const tanggalRaw = excelCellToString(row.getCell(1).value);
-      const username = excelCellToString(row.getCell(2).value);
-      const kodeMember = excelCellToString(row.getCell(3).value).toUpperCase();
-      const namaTokoRaw = excelCellToString(row.getCell(4).value);
-      const cabangRaw = excelCellToString(row.getCell(5).value) || cabangDefault;
+      const tanggal = parseDateCell(row.getCell(1).value);
+      const username = excelCellToString(row.getCell(2).value).trim().toUpperCase();
+      const kodeMember = normCode(excelCellToString(row.getCell(3).value));
+      const namaTokoRaw = excelCellToString(row.getCell(4).value).trim();
+      const cabangRaw = (excelCellToString(row.getCell(5).value) || cabangDefault).trim().toUpperCase();
       const latRaw = excelCellToString(row.getCell(6).value);
       const lngRaw = excelCellToString(row.getCell(7).value);
       const tipeMemberRaw = excelCellToString(row.getCell(8).value);
 
-      if (!tanggalRaw && !username && !kodeMember) return; 
+      if (!row.getCell(1).value && !username && !kodeMember) return; 
 
-      const tanggal = tanggalRaw.length === 10 ? tanggalRaw : tanggalRaw.slice(0, 10);
-      const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(tanggal);
-
-      if (!isValidDate || !username || !kodeMember) {
-        skipped.push({ row: rowNumber, reason: 'Tanggal, Advisor, atau Kode Member kosong / format tanggal salah.' });
+      if (!tanggal || !username || !kodeMember) {
+        skipped.push({
+          row: rowNumber,
+          reason: `Baris ${rowNumber}: Tanggal ("${excelCellToString(row.getCell(1).value)}"), Advisor ("${username}"), atau Kode Member ("${kodeMember}") kosong / format tanggal salah.`,
+        });
         return;
       }
       if (blockedCodes.has(kodeMember)) {
-        skipped.push({ row: rowNumber, reason: `Kode member ${kodeMember} terdaftar di Toko Tutup, ditolak.` });
+        skipped.push({ row: rowNumber, reason: `Baris ${rowNumber}: Kode member ${kodeMember} terdaftar di Toko Tutup, ditolak.` });
         return;
       }
 
@@ -1797,7 +1828,7 @@ scheduleRouter.post('/import', async (req, res) => {
       const lngParsed = lngRaw ? parseFloat(lngRaw.replace(',', '.')) : NaN;
       const latitude = !Number.isNaN(latParsed) ? latParsed : null;
       const longitude = !Number.isNaN(lngParsed) ? lngParsed : null;
-      let tipeMember = normalizeTipeMember(tipeMemberRaw);
+      const tipeMember = normalizeTipeMember(tipeMemberRaw);
 
       parsedRows.push({
         rowNum: rowNumber,
@@ -1817,6 +1848,65 @@ scheduleRouter.post('/import', async (req, res) => {
       return;
     }
 
+    // 1. Ambil data customer secara bulk dari database lokal (sekali eksekusi)
+    const neededCodes = Array.from(new Set(parsedRows.map((r) => r.kode_member)));
+    const custMap = new Map<string, { nama_toko: string; lat: number | null; lng: number | null }>();
+
+    try {
+      const localCust = await queryLocal<any>(
+        `SELECT cust.cus_kodemember, cust.cus_namamember, crm.crm_koordinat
+         FROM tbmaster_customer cust
+         LEFT JOIN tbmaster_customercrm crm ON cust.cus_kodemember = crm.crm_kodemember
+         WHERE cust.cus_kodeigr = $1
+           AND UPPER(cust.cus_kodemember) = ANY($2::text[])
+           AND (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)`,
+        [cabangDefault, neededCodes]
+      );
+      for (const c of localCust || []) {
+        let lat: number | null = null;
+        let lng: number | null = null;
+        if (c.crm_koordinat) {
+          const parts = String(c.crm_koordinat).split(',');
+          if (parts.length === 2) {
+            const la = parseFloat(parts[0].trim());
+            const lo = parseFloat(parts[1].trim());
+            if (!Number.isNaN(la) && !Number.isNaN(lo)) {
+              lat = la;
+              lng = lo;
+            }
+          }
+        }
+        custMap.set(normCode(c.cus_kodemember), {
+          nama_toko: c.cus_namamember || '',
+          lat,
+          lng,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[scheduleRouter.import] queryLocal warning:', e.message);
+    }
+
+    // 2. Fallback koordinat dari tbmaster_tikortoko di Supabase Cloud jika belum lengkap
+    const tikorMap = new Map<string, { lat: number; lng: number; nama_toko?: string }>();
+    try {
+      const tikorRows = await fetchSupabase<any>(`tbmaster_tikortoko?cabang=eq.${encodeURIComponent(cabangDefault)}&select=kode_member,latitude,longitude,nama_toko`);
+      for (const t of tikorRows || []) {
+        if (t.kode_member) {
+          tikorMap.set(normCode(t.kode_member), {
+            lat: parseFloat(t.latitude),
+            lng: parseFloat(t.longitude),
+            nama_toko: t.nama_toko,
+          });
+        }
+      }
+    } catch {}
+
+    // 3. Status keaktifan belanja member
+    let activityMap = new Map<string, 'Belum Aktivasi' | 'Sleeper' | 'Aktif'>();
+    try {
+      activityMap = await getMemberActivityMap(cabangDefault);
+    } catch {}
+
     const payload: Array<{
       tanggal_jadwal: string;
       username: string;
@@ -1830,60 +1920,19 @@ scheduleRouter.post('/import', async (req, res) => {
     }> = [];
 
     for (const r of parsedRows) {
-      let namaToko = r.nama_toko;
-      let lat: number | null = r.latitude;
-      let lng: number | null = r.longitude;
-      let tipeMember: string | null = r.tipe_member;
+      const localData = custMap.get(r.kode_member);
+      const tikorData = tikorMap.get(r.kode_member);
 
-      try {
-        // Klasifikasi SQL langsung untuk import Excel jika tipe_member di excel kosong
-        // DITAMBAHKAN FILTER: (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)
-        const rows = await queryLocal(
-          `SELECT cust.cus_namamember, crm.crm_koordinat,
-                  CASE
-                      WHEN b.belanja_pertama IS NULL THEN 'Belum Aktivasi'
-                      WHEN b.belanja_terakhir < CURRENT_DATE - INTERVAL '3 months' THEN 'Sleeper'
-                      ELSE 'Aktif'
-                  END AS tipe_member
-           FROM tbmaster_customer cust
-           LEFT JOIN tbmaster_customercrm crm ON cust.cus_kodemember = crm.crm_kodemember
-           LEFT JOIN (
-             SELECT
-               jh_cus_kodemember,
-               DATE_TRUNC('day', MIN(jh_transactiondate)) AS belanja_pertama,
-               DATE_TRUNC('day', MAX(jh_transactiondate)) AS belanja_terakhir
-             FROM tbtr_jualheader
-             WHERE jh_cus_kodemember IS NOT NULL
-             GROUP BY jh_cus_kodemember
-           ) b ON cust.cus_kodemember = b.jh_cus_kodemember
-           WHERE cust.cus_kodeigr = $1 AND cust.cus_kodemember = $2 AND (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)
-           LIMIT 1`,
-          [r.cabang, r.kode_member]
-        );
-
-        if (rows.length > 0) {
-          if (!namaToko) namaToko = rows[0].cus_namamember;
-          if ((lat === null || lng === null) && rows[0].crm_koordinat) {
-            const parts = String(rows[0].crm_koordinat).split(',');
-            if (parts.length === 2) {
-              const la = parseFloat(parts[0].trim());
-              const lo = parseFloat(parts[1].trim());
-              if (!Number.isNaN(la) && !Number.isNaN(lo)) {
-                lat = la;
-                lng = lo;
-              }
-            }
-          }
-          if (!tipeMember) {
-            tipeMember = rows[0].tipe_member; // Mengambil hasil dari SQL
-          }
-        }
-      } catch {
-        // Ignore DB connection errors, proceed with whatever data we have
-      }
+      let namaToko = r.nama_toko || localData?.nama_toko || tikorData?.nama_toko || '';
+      let lat = r.latitude ?? (localData?.lat ?? (tikorData?.lat ?? null));
+      let lng = r.longitude ?? (localData?.lng ?? (tikorData?.lng ?? null));
+      let tipeMember = r.tipe_member || activityMap.get(r.kode_member) || null;
 
       if (!namaToko) {
-        skipped.push({ row: r.rowNum, reason: `Kode member ${r.kode_member} tidak ditemukan (atau nonaktif) di database lokal dan Nama Toko di file kosong.` });
+        skipped.push({
+          row: r.rowNum,
+          reason: `Baris ${r.rowNum}: Kode member ${r.kode_member} tidak ditemukan di database dan Nama Toko di file kosong.`,
+        });
         continue;
       }
 
@@ -1905,18 +1954,20 @@ scheduleRouter.post('/import', async (req, res) => {
       return;
     }
 
+    // 4. Sinkronisasi status Member Pilihan
     const pilihanCache = new Map<string, Set<string>>();
     for (const row of payload) {
       const [y, m] = row.tanggal_jadwal.slice(0, 7).split('-').map(Number);
       const key = `${row.cabang}|${y}|${m}`;
       if (!pilihanCache.has(key)) {
-        const pilihan = await getMemberPilihanPeriode(row.cabang, y, m);
+        const pilihan = await getMemberPilihanPeriode(row.cabang, y, m).catch(() => []);
         pilihanCache.set(key, new Set(pilihan.map((p) => normCode(p.kode_member))));
       }
       const isPilihan = pilihanCache.get(key)?.has(normCode(row.kode_member)) || false;
       if (isPilihan) row.tipe_member = 'Member Pilihan';
     }
 
+    // 5. Simpan langsung ke Supabase Cloud
     await insertManySupabase('tbtr_jadwal_bulanan', payload);
 
     res.json({
@@ -1927,6 +1978,7 @@ scheduleRouter.post('/import', async (req, res) => {
       skipped,
     });
   } catch (err: any) {
+    console.error('[scheduleRouter.import] Error:', err);
     res.status(500).json({ error: err.message });
   }
 });

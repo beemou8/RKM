@@ -966,6 +966,10 @@ export async function deleteKilometerMotor(id: number): Promise<{ success: boole
   return body;
 }
 
+export function fetchKilometerMotorAdvisors(cabang: string): Promise<{ success: boolean; data: Array<{ username: string; nama_lengkap: string }> }> {
+  return getJson(`/api/kilometer-motor/advisors?cabang=${encodeURIComponent(cabang)}`);
+}
+
 export function exportKilometerMotorUrl(
   cabang: string,
   tglDari = '',

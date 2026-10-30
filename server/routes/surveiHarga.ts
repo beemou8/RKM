@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import ExcelJS from 'exceljs';
-import { fetchSupabaseAll } from '../lib/supabase.js';
 import { fetchSupabaseAll, fetchSupabaseAllCached } from '../lib/supabase.js';
 import { queryLocal } from '../lib/db.js';
 import { FILL, sendWorkbook, styleHeaderRow, thinBorder } from '../lib/excel.js';

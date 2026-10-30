@@ -17,6 +17,8 @@ build/
 # Logs
 logs/
 *.log
+rkm-log.txt
+.rkm-flag
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

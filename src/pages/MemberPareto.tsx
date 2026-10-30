@@ -114,7 +114,7 @@ export default function MemberPareto() {
       setNewKeterangan('');
       loadMasterItems();
     } catch (err: any) {
-      setMasterError(err.message || 'Gagal menyimpan ke Supabase master.');
+      setMasterError(err.message || 'Gagal menyimpan ke Master Data Pusat.');
     } finally {
       setIsSavingMaster(false);
     }
@@ -125,7 +125,7 @@ export default function MemberPareto() {
       alert('Item bawaan tidak dapat dihapus.');
       return;
     }
-    if (!confirm('Yakin ingin menghapus item pareto ini dari Supabase Master?')) return;
+    if (!confirm('Yakin ingin menghapus item pareto ini dari Master Data Pusat?')) return;
     try {
       await deleteMasterItemPareto(id);
       loadMasterItems();
@@ -239,7 +239,7 @@ export default function MemberPareto() {
         setMonitoringAdvisors(res.advisor_list || []);
       })
       .catch((err) => {
-        setErrorMonitoring(err.message || 'Gagal memuat data monitoring dari Supabase.');
+        setErrorMonitoring(err.message || 'Gagal memuat data monitoring dari Pusat Data.');
       })
       .finally(() => {
         setLoadingMonitoring(false);
@@ -404,7 +404,7 @@ export default function MemberPareto() {
 
   // Delete monitoring row
   const handleDeleteMonitoring = async (id: number) => {
-    if (!confirm('Hapus data target ini dari Supabase?')) return;
+    if (!confirm('Hapus data target ini dari Pusat Data?')) return;
     try {
       await deleteMemberPareto(id);
       setMonitoringData((prev) => prev.filter((r) => r.id !== id));
@@ -421,7 +421,7 @@ export default function MemberPareto() {
       .map(([id]) => Number(id));
 
     if (ids.length === 0) return;
-    if (!confirm(`Hapus ${ids.length} data target terpilih dari Supabase?`)) return;
+    if (!confirm(`Hapus ${ids.length} data target terpilih dari Pusat Data?`)) return;
 
     setIsDeletingMon(true);
     try {
