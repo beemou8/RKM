@@ -67,21 +67,25 @@ export default function Penjadwalan() {
   const [pushMsg, setPushMsg] = useState<string | null>(null);
   const [filterInfo, setFilterInfo] = useState<string | null>(null);
   
-  // State untuk Modal Input Manual (fitur tersembunyi)
+  // State untuk Modal Input Manual (multi-baris)
+  type ManualRowLookup = 'idle' | 'loading' | 'found' | 'blocked' | 'not_found';
+  type ManualRow = {
+    id: number;
+    kode_member: string;
+    nama_toko: string;
+    lookupState: ManualRowLookup;
+    lookupMsg: string | null;
+    lookupLatLng: { lat: number; lng: number } | null;
+    lookupTipeMember: string | null;
+  };
+  const newManualRow = (id: number): ManualRow => ({
+    id, kode_member: '', nama_toko: '', lookupState: 'idle', lookupMsg: null, lookupLatLng: null, lookupTipeMember: null,
+  });
   const [showManualModal, setShowManualModal] = useState(false);
   const [submittingManual, setSubmittingManual] = useState(false);
-  const [manualForm, setManualForm] = useState({
-    tanggal: '',
-    username: '',
-    kode_member: '',
-    nama_toko: '',
-  });
-  const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'found' | 'blocked' | 'not_found'>('idle');
-  const [lookupMsg, setLookupMsg] = useState<string | null>(null);
-  const [lookupLatLng, setLookupLatLng] = useState<{ lat: number; lng: number } | null>(null);
-  const [lookupTipeMember, setLookupTipeMember] = useState<string | null>(null);
-  const [existingDay, setExistingDay] = useState<JadwalBulanan[]>([]);
-  const [replaceId, setReplaceId] = useState<number | ''>('');
+  const [manualHeader, setManualHeader] = useState({ tanggal: '', username: '' });
+  const [manualRows, setManualRows] = useState<ManualRow[]>([newManualRow(1)]);
+  const [manualRowIdSeq, setManualRowIdSeq] = useState(2);
 
   // State untuk Modal Import Excel
   const [showImportModal, setShowImportModal] = useState(false);
@@ -174,59 +178,40 @@ export default function Penjadwalan() {
     setMaksPerHari('15');
   };
 
-  // Lookup otomatis nama toko & cabang dari kode member (debounced), sekaligus
-  // cek apakah toko ini berstatus tutup sebelum bisa dimasukkan ke jadwal.
+  // Lookup otomatis per baris di modal manual (debounced per row id)
   useEffect(() => {
-    const kode = manualForm.kode_member.trim();
-    if (!showManualModal || kode.length < 3) {
-      setLookupState('idle');
-      setLookupMsg(null);
-      setLookupLatLng(null);
-      setLookupTipeMember(null);
-      return;
-    }
-    const id = setTimeout(() => {
-      setLookupState('loading');
-      fetchMemberLookup(kode, cabang)
-        .then((r) => {
-          if (r.blocked) {
-            setLookupState('blocked');
-            setLookupMsg(r.message || 'Toko ini berstatus tutup.');
-            setLookupLatLng(null);
-            setLookupTipeMember(null);
-          } else if (r.found) {
-            setLookupState('found');
-            setLookupMsg(null);
-            setManualForm((f) => ({ ...f, nama_toko: r.nama_toko || f.nama_toko }));
-            setLookupLatLng(r.lat && r.lng ? { lat: r.lat, lng: r.lng } : null);
-            setLookupTipeMember(r.tipe_member || null);
-          } else {
-            setLookupState('not_found');
-            setLookupMsg(r.message || 'Kode member tidak ditemukan, silakan isi nama toko manual.');
-            setLookupLatLng(null);
-            setLookupTipeMember(null);
-          }
-        })
-        .catch(() => {
-          setLookupState('not_found');
-          setLookupMsg('Gagal cek kode member, silakan isi nama toko manual.');
-        });
-    }, 450);
-    return () => clearTimeout(id);
-  }, [manualForm.kode_member, cabang, showManualModal]);
-
-  // Ambil jadwal yang sudah ada untuk advisor + tanggal terpilih, supaya bisa
-  // menggantikan salah satu dari maksimal 15 jadwal yang sudah ada di hari itu.
-  useEffect(() => {
-    setReplaceId('');
-    if (!showManualModal || !manualForm.username || !manualForm.tanggal) {
-      setExistingDay([]);
-      return;
-    }
-    fetchExistingDay(manualForm.username, manualForm.tanggal, cabang)
-      .then((r) => setExistingDay(r.data || []))
-      .catch(() => setExistingDay([]));
-  }, [manualForm.username, manualForm.tanggal, showManualModal, cabang]);
+    if (!showManualModal) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    manualRows.forEach((row) => {
+      const kode = row.kode_member.trim();
+      if (kode.length < 3) {
+        setManualRows((rows) => rows.map((r) => r.id === row.id
+          ? { ...r, lookupState: 'idle', lookupMsg: null, lookupLatLng: null, lookupTipeMember: null }
+          : r));
+        return;
+      }
+      const t = setTimeout(() => {
+        setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, lookupState: 'loading' } : r));
+        fetchMemberLookup(kode, cabang)
+          .then((res) => {
+            setManualRows((rows) => rows.map((r) => {
+              if (r.id !== row.id) return r;
+              if (res.blocked) return { ...r, lookupState: 'blocked', lookupMsg: res.message || 'Toko ini berstatus tutup.', lookupLatLng: null, lookupTipeMember: null };
+              if (res.found) return { ...r, lookupState: 'found', lookupMsg: null, nama_toko: res.nama_toko || r.nama_toko, lookupLatLng: res.lat && res.lng ? { lat: res.lat, lng: res.lng } : null, lookupTipeMember: res.tipe_member || null };
+              return { ...r, lookupState: 'not_found', lookupMsg: res.message || 'Kode member tidak ditemukan.', lookupLatLng: null, lookupTipeMember: null };
+            }));
+          })
+          .catch(() => {
+            setManualRows((rows) => rows.map((r) => r.id === row.id
+              ? { ...r, lookupState: 'not_found', lookupMsg: 'Gagal cek kode member, isi nama toko manual.' }
+              : r));
+          });
+      }, 450);
+      timers.push(t);
+    });
+    return () => timers.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualRows.map((r) => r.kode_member).join('|'), cabang, showManualModal]);
 
   const selectedCount = Object.values(checked).filter(Boolean).length;
 
@@ -287,46 +272,48 @@ export default function Penjadwalan() {
     }
   };
 
-  // Fungsi Push Manual
+  // Fungsi Push Manual (multi-row)
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!manualForm.tanggal || !manualForm.username || !manualForm.kode_member || !manualForm.nama_toko) {
-      alert('Harap lengkapi semua field!');
+    if (!manualHeader.tanggal || !manualHeader.username) {
+      alert('Harap pilih Tanggal dan Advisor terlebih dahulu!');
       return;
     }
-    if (lookupState === 'blocked') {
-      alert(lookupMsg || 'Toko ini berstatus tutup dan tidak bisa dijadwalkan.');
+    const validRows = manualRows.filter((r) => r.kode_member.trim() && r.nama_toko.trim());
+    if (validRows.length === 0) {
+      alert('Minimal 1 baris harus diisi (Kode Member + Nama Toko)!');
+      return;
+    }
+    const blockedRows = validRows.filter((r) => r.lookupState === 'blocked');
+    if (blockedRows.length > 0) {
+      alert(`${blockedRows.length} toko berstatus tutup (merah) tidak bisa dijadwalkan. Hapus atau perbaiki dulu.`);
       return;
     }
 
     const konfirmasi = window.confirm(
-      replaceId
-        ? `Anda yakin ingin mengganti jadwal ini dengan entri manual (${manualForm.nama_toko || manualForm.kode_member}) di Supabase?`
-        : `Anda yakin ingin menambahkan jadwal manual (${manualForm.nama_toko || manualForm.kode_member}) ke Supabase?`
+      `Simpan ${validRows.length} jadwal manual untuk ${manualHeader.username.toUpperCase()} tanggal ${manualHeader.tanggal} ke Supabase?`
     );
     if (!konfirmasi) return;
 
     setSubmittingManual(true);
     try {
-      const payload = [
-        {
-          tanggal: manualForm.tanggal,
-          username: manualForm.username,
-          kode_member: manualForm.kode_member.toUpperCase(),
-          nama_toko: manualForm.nama_toko,
-          cabang: cabang,
-          lat: lookupLatLng?.lat ?? 0,
-          lng: lookupLatLng?.lng ?? 0,
-          tipe_member: lookupTipeMember,
-          ...(replaceId ? { replace_id: replaceId } : {}),
-        },
-      ];
+      const payload = validRows.map((row) => ({
+        tanggal: manualHeader.tanggal,
+        username: manualHeader.username,
+        kode_member: row.kode_member.trim().toUpperCase(),
+        nama_toko: row.nama_toko.trim(),
+        cabang: cabang,
+        lat: row.lookupLatLng?.lat ?? 0,
+        lng: row.lookupLatLng?.lng ?? 0,
+        tipe_member: row.lookupTipeMember,
+      }));
 
-      await pushSchedule(payload);
-      alert(replaceId ? 'Sukses mengganti jadwal dengan entri manual!' : 'Sukses menambahkan jadwal manual ke Supabase!');
+      const result = await pushSchedule(payload);
+      alert(`Sukses menyimpan ${result.count ?? validRows.length} jadwal manual ke Supabase!`);
       setShowManualModal(false);
-      setManualForm({ tanggal: '', username: '', kode_member: '', nama_toko: '' });
-      setReplaceId('');
+      setManualHeader({ tanggal: '', username: '' });
+      setManualRows([newManualRow(1)]);
+      setManualRowIdSeq(2);
       window.location.reload();
     } catch (err: any) {
       alert('Gagal push manual: ' + err.message);
@@ -743,120 +730,118 @@ export default function Penjadwalan() {
       {/* Modal Input Jadwal Manual */}
       {showManualModal && (
         <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
-          <Card className="w-full max-w-sm flex flex-col bg-[var(--bg-surface)] border-[var(--border-strong)] shadow-2xl p-5">
+          <Card className="w-full max-w-2xl flex flex-col bg-[var(--bg-surface)] border-[var(--border-strong)] shadow-2xl p-5">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                 <Plus className="w-4 h-4 text-amber-400" /> Input Jadwal Manual
               </h2>
-              <button onClick={() => setShowManualModal(false)} className="text-[var(--text-muted)] hover:text-white transition-colors">
+              <button onClick={() => { setShowManualModal(false); setManualHeader({ tanggal: '', username: '' }); setManualRows([newManualRow(1)]); setManualRowIdSeq(2); }} className="text-[var(--text-muted)] hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
-            <form onSubmit={handleManualSubmit} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Tanggal</label>
-                <Input 
-                  type="date" 
-                  value={manualForm.tanggal} 
-                  onChange={(e) => setManualForm({...manualForm, tanggal: e.target.value})} 
-                  className="w-full" 
-                  required 
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Advisor / MR</label>
-                <Select 
-                  value={manualForm.username} 
-                  onChange={(e) => setManualForm({...manualForm, username: e.target.value})} 
-                  className="w-full" 
-                  required
-                >
-                  <option value="">Pilih Advisor</option>
-                  {advisorList.map((a) => (
-                    <option key={a} value={a}>{a.toUpperCase()}</option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Kode Member</label>
-                <Input 
-                  type="text" 
-                  placeholder="Misal: 2T123456" 
-                  value={manualForm.kode_member} 
-                  onChange={(e) => setManualForm({...manualForm, kode_member: e.target.value})} 
-                  className="w-full uppercase" 
-                  required 
-                />
-                {lookupState === 'loading' && (
-                  <p className="text-[11px] text-[var(--text-muted)] mt-1.5">Mengecek kode member...</p>
-                )}
-                {lookupState === 'found' && (
-                  <p className="text-[11px] text-emerald-400 mt-1.5">
-                    Toko ditemukan, nama & koordinat terisi otomatis.
-                    {lookupTipeMember && lookupTipeMember !== 'Aktif' && (
-                      <span className={lookupTipeMember === 'Sleeper' ? ' text-amber-400' : ' text-rose-400'}>
-                        {' '}Tipe member: {lookupTipeMember}.
-                      </span>
-                    )}
-                  </p>
-                )}
-                {lookupState === 'not_found' && lookupMsg && (
-                  <p className="text-[11px] text-amber-400 mt-1.5">{lookupMsg}</p>
-                )}
-                {lookupState === 'blocked' && (
-                  <p className="text-[11px] text-rose-400 mt-1.5 flex items-center gap-1.5">
-                    <ShieldAlert className="w-3.5 h-3.5 shrink-0" /> {lookupMsg}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Nama Toko</label>
-                <Input 
-                  type="text" 
-                  placeholder="Nama Toko Lengkap" 
-                  value={manualForm.nama_toko} 
-                  onChange={(e) => setManualForm({...manualForm, nama_toko: e.target.value})} 
-                  className="w-full uppercase" 
-                  required 
-                />
-              </div>
 
-              {existingDay.length > 0 && (
+            <form onSubmit={handleManualSubmit} className="space-y-4">
+              {/* Header: tanggal + advisor (shared untuk semua baris) */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                    <Repeat className="w-3.5 h-3.5 text-amber-400" /> Ganti Jadwal yang Sudah Ada (opsional)
-                  </label>
-                  <Select
-                    value={replaceId}
-                    onChange={(e) => setReplaceId(e.target.value ? Number(e.target.value) : '')}
+                  <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Tanggal</label>
+                  <Input
+                    type="date"
+                    value={manualHeader.tanggal}
+                    onChange={(e) => setManualHeader((h) => ({ ...h, tanggal: e.target.value }))}
                     className="w-full"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider mb-1.5">Advisor / MR</label>
+                  <Select
+                    value={manualHeader.username}
+                    onChange={(e) => setManualHeader((h) => ({ ...h, username: e.target.value }))}
+                    className="w-full"
+                    required
                   >
-                    <option value="">Tambah baru (jangan ganti)</option>
-                    {existingDay.map((j) => (
-                      <option key={j.id} value={j.id}>
-                        {j.kode_member} — {j.nama_toko || 'tanpa nama'}{j.member_pilihan ? ' — MEMBER PILIHAN' : ''}
-                      </option>
+                    <option value="">Pilih Advisor</option>
+                    {advisorList.map((a) => (
+                      <option key={a} value={a}>{a.toUpperCase()}</option>
                     ))}
                   </Select>
-                  <p className="text-[11px] text-[var(--text-faint)] mt-1.5">
-                    {existingDay.length}/15 jadwal sudah terisi di hari ini untuk advisor ini
-                    {existingDay.length >= 15 ? ' — sudah penuh, pilih salah satu untuk digantikan.' : '.'}
-                  </p>
                 </div>
-              )}
+              </div>
 
-              <div className="pt-2">
+              {/* Daftar baris toko */}
+              <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                {manualRows.map((row, idx) => (
+                  <div key={row.id} className="p-3 rounded-xl border border-[var(--border)] bg-[var(--bg-inset)] space-y-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[11px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Toko #{idx + 1}</span>
+                      {manualRows.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setManualRows((rows) => rows.filter((r) => r.id !== row.id))}
+                          className="text-rose-400 hover:text-rose-300 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Input
+                          type="text"
+                          placeholder="Kode Member (mis: 2T123456)"
+                          value={row.kode_member}
+                          onChange={(e) => setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, kode_member: e.target.value } : r))}
+                          className="w-full uppercase text-xs"
+                        />
+                        {row.lookupState === 'loading' && <p className="text-[10px] text-[var(--text-muted)] mt-1">Mengecek...</p>}
+                        {row.lookupState === 'found' && (
+                          <p className="text-[10px] text-emerald-400 mt-1">
+                            ✓ Ditemukan{row.lookupTipeMember && row.lookupTipeMember !== 'Aktif' && (
+                              <span className={row.lookupTipeMember === 'Sleeper' ? ' text-amber-400' : ' text-rose-400'}> · {row.lookupTipeMember}</span>
+                            )}
+                          </p>
+                        )}
+                        {row.lookupState === 'not_found' && row.lookupMsg && <p className="text-[10px] text-amber-400 mt-1">{row.lookupMsg}</p>}
+                        {row.lookupState === 'blocked' && (
+                          <p className="text-[10px] text-rose-400 mt-1 flex items-center gap-1"><ShieldAlert className="w-3 h-3 shrink-0" />{row.lookupMsg}</p>
+                        )}
+                      </div>
+                      <div>
+                        <Input
+                          type="text"
+                          placeholder="Nama Toko"
+                          value={row.nama_toko}
+                          onChange={(e) => setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, nama_toko: e.target.value } : r))}
+                          className="w-full uppercase text-xs"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tombol tambah baris */}
+              <button
+                type="button"
+                onClick={() => { const id = manualRowIdSeq; setManualRowIdSeq((n) => n + 1); setManualRows((rows) => [...rows, newManualRow(id)]); }}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-amber-500/40 text-amber-400 text-xs hover:bg-amber-500/5 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Tambah Baris Toko
+              </button>
+
+              <div className="flex items-center justify-between gap-3 pt-1">
+                <span className="text-[11px] text-[var(--text-faint)]">
+                  {manualRows.filter((r) => r.kode_member.trim() && r.nama_toko.trim()).length} toko siap disimpan
+                </span>
                 <Button
                   type="submit"
                   variant="primary"
-                  className="w-full justify-center"
-                  disabled={submittingManual || lookupState === 'blocked'}
+                  className="justify-center"
+                  disabled={submittingManual || manualRows.some((r) => r.lookupState === 'blocked')}
                 >
                   {submittingManual ? 'Menyimpan...' : (
-                    <>
-                      <Save className="w-4 h-4 mr-1.5" /> {replaceId ? 'Ganti Jadwal' : 'Simpan ke Supabase'}
-                    </>
+                    <><Save className="w-4 h-4 mr-1.5" /> Simpan ke Supabase</>
                   )}
                 </Button>
               </div>
