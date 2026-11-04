@@ -444,9 +444,18 @@ export function PerformanceDashboard({
                           <div className="text-xs text-[var(--text-faint)] truncate max-w-[180px]">{g.nama_toko}</div>
                         </div>
                       </div>
-                      <span className="text-[11px] text-rose-300/80 bg-rose-500/10 px-2 py-1 rounded border border-rose-500/20 shrink-0">
-                        {g.alasan_tidak_order || 'Tidak ada alasan'}
-                      </span>
+                      <div className="flex flex-col items-end gap-1 shrink-0 max-w-[190px]">
+                        {g.kategori_tidak_order && (
+                          <span className="text-[10px] text-amber-300/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 truncate max-w-full">
+                            {g.kategori_tidak_order}
+                          </span>
+                        )}
+                        {(g.alasan_tidak_order || !g.kategori_tidak_order) && (
+                          <span className="text-[11px] text-rose-300/80 bg-rose-500/10 px-2 py-1 rounded border border-rose-500/20 truncate max-w-full">
+                            {g.alasan_tidak_order || 'Tidak ada keterangan'}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
