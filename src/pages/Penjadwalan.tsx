@@ -791,7 +791,7 @@ export default function Penjadwalan() {
                           type="text"
                           placeholder="Kode Member (mis: 2T123456)"
                           value={row.kode_member}
-                          onChange={(e) => setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, kode_member: e.target.value } : r))}
+                          onChange={(e) => setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, kode_member: e.target.value.toUpperCase() } : r))}
                           className="w-full uppercase text-xs"
                         />
                         {row.lookupState === 'loading' && <p className="text-[10px] text-[var(--text-muted)] mt-1">Mengecek...</p>}
@@ -812,7 +812,7 @@ export default function Penjadwalan() {
                           type="text"
                           placeholder="Nama Toko"
                           value={row.nama_toko}
-                          onChange={(e) => setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, nama_toko: e.target.value } : r))}
+                          onChange={(e) => setManualRows((rows) => rows.map((r) => r.id === row.id ? { ...r, nama_toko: e.target.value.toUpperCase() } : r))}
                           className="w-full uppercase text-xs"
                         />
                       </div>
