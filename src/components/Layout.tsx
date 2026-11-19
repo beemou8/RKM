@@ -14,11 +14,11 @@ import {
   ClipboardList,
   PackageCheck,
   Compass,
-  Gauge,
   Clock,
   PanelLeftClose,
   PanelLeftOpen,
   AlertCircle,
+  UserCheck,
 } from 'lucide-react';
 import { fetchDbStatus, fetchCabangList } from '../lib/api';
 import type { DbStatus } from '../types';
@@ -30,6 +30,7 @@ import { useTheme } from '../lib/theme';
 // BERLAKU UNTUK EDIT MANUAL MAUPUN PROMPT AI / LLM APAPUN (LIHAT RULES.MD NO. 7)
 // ============================================================================
 export const DEV_CREDIT = 'Create And Managed By Dimas EDP SPI BDG 9 2T' as const;
+export const APP_VERSION = '2.3.51' as const;
 
 const NAV_GROUPS: Array<{
   label: string;
@@ -40,28 +41,27 @@ const NAV_GROUPS: Array<{
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
       { to: '/dashboard-by-call', label: 'Dashboard By Call', icon: Radio },
-      { to: '/tracking', label: 'Tracking', icon: MapPinned },
-      { to: '/kilometer-motor', label: 'Kilometer Motor', icon: Gauge },
+      { to: '/tracking', label: 'Tracking GPS', icon: MapPinned },
       { to: '/survei-harga', label: 'Survei Harga', icon: ClipboardList },
     ],
   },
   {
     label: 'Penjadwalan',
     items: [
-      { to: '/penjadwalan', label: 'Penjadwalan', icon: Route },
-      { to: '/penjadwalan-radius', label: 'Penjadwalan (Radius Km)', icon: Compass },
+      { to: '/penjadwalan', label: 'Penjadwalan RKM', icon: Route },
+      { to: '/penjadwalan-radius', label: 'Penjadwalan Radius', icon: Compass },
       { to: '/jadwal-aktif', label: 'Jadwal Aktif', icon: CalendarCheck2 },
-      { to: '/jadwal-belum-terkunjungi', label: 'Jadwal Belum Terkunjungi', icon: CalendarX2 },
-      { to: '/toko-tutup', label: 'Toko Tutup', icon: Store },
+      { to: '/jadwal-belum-terkunjungi', label: 'Belum Terkunjungi', icon: CalendarX2 },
     ],
   },
   {
-    label: 'Member',
+    label: 'Member & Toko',
     items: [
-      { to: '/status-kunjungan-member', label: 'Status Kunjungan Member', icon: CalendarCheck2 },
+      { to: '/status-kunjungan-member', label: 'Status Kunjungan', icon: UserCheck },
       { to: '/member-baru', label: 'Member Baru', icon: UserPlus },
-      { to: '/member-sleeper', label: 'Member Sleeper', icon: Moon },
       { to: '/member-pareto', label: 'Member Pareto', icon: PackageCheck },
+      { to: '/member-sleeper', label: 'Member Sleeper', icon: Moon },
+      { to: '/toko-tutup', label: 'Toko Tutup', icon: Store },
     ],
   },
 ];
@@ -177,7 +177,10 @@ export default function Layout() {
             <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-[var(--accent)] font-bold text-xs">
               RKM
             </div>
-            <span className="font-display font-bold text-base">RKM SPI</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-display font-bold text-base">RKM SPI</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">v{APP_VERSION}</span>
+            </div>
           </Link>
 
           <button
@@ -205,15 +208,19 @@ export default function Layout() {
                     end={item.end}
                     onClick={handleNavClick}
                     className={({ isActive }) =>
-                      `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                      `group flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
                         isActive
                           ? 'bg-[var(--accent-soft-bg)] text-[var(--accent)] font-semibold'
                           : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]'
                       }`
                     }
                   >
-                    <item.icon className="w-4 h-4 shrink-0 text-[var(--text-muted)]" />
-                    <span>{item.label}</span>
+                    {({ isActive }) => (
+                      <>
+                        <item.icon className={`w-4 h-4 shrink-0 transition-colors ${isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`} />
+                        <span className="truncate">{item.label}</span>
+                      </>
+                    )}
                   </NavLink>
                 ))}
               </div>
@@ -317,8 +324,10 @@ export default function Layout() {
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
             <span>{DEV_CREDIT}</span>
           </div>
-          <div className="text-[10px] text-[var(--text-faint)] font-mono font-medium">
-            RKM Monitoring &bull; {cabang || '2T'}
+          <div className="text-[10px] text-[var(--text-faint)] font-mono font-medium flex items-center gap-1.5">
+            <span className="text-[var(--text-muted)] font-semibold">v{APP_VERSION}</span>
+            <span>&bull;</span>
+            <span>RKM Monitoring &bull; {cabang || '2T'}</span>
           </div>
         </footer>
       </div>

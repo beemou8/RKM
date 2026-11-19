@@ -526,6 +526,225 @@ dashboardRouter.get('/by-call/export', async (req, res) => {
 });
 
 // ============================================================
+// Helper Data & Sheet Bulanan By Call
+// ============================================================
+async function loadByCallMonthlyData(
+  rkmAdvisorKeys: string[],
+  cabang: string,
+  tglAwal: string,
+  tglAkhir: string,
+  jmlHari: number,
+  tahun: number,
+  bulan: string
+) {
+  const byCallRows = rkmAdvisorKeys.length > 0
+    ? await fetchSupabaseAllCached<any>(
+        `tbtr_kunjungan_by_call?select=username,created_at,berhasil_order,kode_member,nama_toko,cabang,no_trx&cabang=eq.${encodeURIComponent(
+          cabang
+        )}&berhasil_order=eq.true&created_at=gte.${tglAwal}T00:00:00%2B07:00&created_at=lte.${tglAkhir}T23:59:59%2B07:00&username=in.(${rkmAdvisorKeys.join(',')})&order=created_at.asc`,
+        { maxRows: Math.max(1000, parseInt(process.env.MAX_EXPORT_ROWS || '20000', 10)), ttlMs: 60_000 }
+      )
+    : [];
+
+  const dailyCodes: Record<string, Record<string, Set<string>>> = {};
+  const memberDayAdvisor: Record<string, string> = {};
+  for (const adv of rkmAdvisorKeys) {
+    dailyCodes[adv] = {};
+    for (let d = 1; d <= jmlHari; d++) dailyCodes[adv][String(d).padStart(2, '0')] = new Set<string>();
+  }
+
+  const byCallSeenByDay = new Set<string>();
+  for (const row of byCallRows || []) {
+    const adv = row.username;
+    const kode = String(row.kode_member || '').trim().toUpperCase();
+    if (!dailyCodes[adv] || !kode) continue;
+    const dt = getWIBDate(row.created_at);
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const orderKey = `${kode}|${dd}`;
+    if (byCallSeenByDay.has(orderKey)) continue;
+    byCallSeenByDay.add(orderKey);
+    dailyCodes[adv][dd].add(kode);
+    memberDayAdvisor[orderKey] = adv;
+  }
+
+  const dailyRph: Record<string, Record<string, number>> = {};
+  for (const adv of rkmAdvisorKeys) {
+    dailyRph[adv] = {};
+    for (let d = 1; d <= jmlHari; d++) dailyRph[adv][String(d).padStart(2, '0')] = 0;
+  }
+
+  const kodeList = Array.from(new Set((byCallRows || []).map((r: any) => String(r.kode_member || '').trim().toUpperCase()).filter(Boolean)));
+  if (kodeList.length > 0) {
+    try {
+      const tglAwalMinus1 = addDays(tglAwal, -1);
+      const rows = await queryLocal(
+        `SELECT H.OBI_KDMEMBER, DATE(H.OBI_TGLPB) AS TGL,
+                SUM(H.OBI_TTLORDER + H.OBI_TTLPPN - COALESCE(P.CASHBACK_ORDER, 0)) AS TOTAL_RP
+         FROM tbtr_obi_h H
+         INNER JOIN tbmaster_customer C ON H.OBI_KDMEMBER = C.CUS_KODEMEMBER
+         LEFT JOIN (SELECT NO_PB, SUM(CASHBACK_ORDER) AS CASHBACK_ORDER FROM PROMO_KLIKIGR GROUP BY NO_PB) P
+                ON P.NO_PB = H.OBI_NOPB
+         WHERE C.CUS_KODEIGR = $1 AND H.OBI_KDMEMBER = ANY($2::text[])
+           AND H.OBI_TGLPB BETWEEN $3 AND $4
+           AND (H.OBI_RECID IS NULL OR UPPER(H.OBI_RECID) NOT LIKE '%B%')
+         GROUP BY H.OBI_KDMEMBER, DATE(H.OBI_TGLPB)`,
+        [cabang, kodeList, `${tglAwalMinus1} 00:00:00`, `${tglAkhir} 23:59:59`]
+      );
+      const byMemberDate: Record<string, Record<string, number>> = {};
+      for (const r of rows || []) {
+        const dt = getWIBDate(r.tgl);
+        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+        const kode = String(r.obi_kdmember || '').trim().toUpperCase();
+        byMemberDate[kode] = byMemberDate[kode] || {};
+        byMemberDate[kode][key] = (byMemberDate[kode][key] || 0) + (parseFloat(r.total_rp) || 0);
+      }
+      for (const [memberDay, adv] of Object.entries(memberDayAdvisor)) {
+        const [kode, dd] = memberDay.split('|');
+        const tglCall = `${tahun}-${bulan}-${dd}`;
+        const prev = addDays(tglCall, -1);
+        const rp = (byMemberDate[kode]?.[tglCall] || 0) + (byMemberDate[kode]?.[prev] || 0);
+        dailyRph[adv][dd] = (dailyRph[adv][dd] || 0) + rp;
+      }
+    } catch {
+      // DB lokal offline
+    }
+  }
+
+  return { dailyCodes, dailyRph };
+}
+
+function addByCallSheet(
+  wb: ExcelJS.Workbook,
+  rkmAdvisorKeys: string[],
+  allUsers: Record<string, string>,
+  dailyCodes: Record<string, Record<string, Set<string>>>,
+  dailyRph: Record<string, Record<string, number>>,
+  jmlHari: number,
+  namaBulan: string,
+  tahun: number,
+  bulan: string,
+  cabang: string,
+  dicetak: string
+) {
+  const wsByCall = wb.addWorksheet('By Call', { views: [{ state: 'frozen', xSplit: 3 }] });
+  const dayHeaders = Array.from({ length: jmlHari }, (_, i) => String(i + 1).padStart(2, '0'));
+  const lastCol = 4 + jmlHari;
+  const thin: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: 'FF000000' } };
+  const allBorders: Partial<ExcelJS.Borders> = { top: thin, bottom: thin, left: thin, right: thin };
+  const rupFmt = '"Rp"#,##0';
+
+  wsByCall.getColumn(1).width = 22;
+  wsByCall.getColumn(2).width = 14;
+  wsByCall.getColumn(3).width = 14;
+  wsByCall.getColumn(4).width = 3;
+  for (let d = 5; d <= lastCol; d++) wsByCall.getColumn(d).width = 9;
+
+  wsByCall.mergeCells(1, 1, 1, lastCol);
+  const titleCell = wsByCall.getCell(1, 1);
+  titleCell.value = 'LAPORAN HARIAN BY CALL (BELANJA)';
+  titleCell.font = { bold: true, size: 13 };
+
+  wsByCall.mergeCells(2, 1, 2, lastCol);
+  const subCell = wsByCall.getCell(2, 1);
+  subCell.value = `Cabang: ${cabang} | Periode: ${namaBulan} ${tahun} | Dicetak: ${dicetak} (Sheet Mandiri By Call — tidak digabung ke total RKM)`;
+  subCell.font = { color: { argb: 'FF666666' } };
+
+  let r = 4;
+  for (const adv of rkmAdvisorKeys) {
+    const counts = dayHeaders.map((dd) => dailyCodes[adv]?.[dd]?.size || 0);
+    const rphVals = dayHeaders.map((dd) => dailyRph[adv]?.[dd] || 0);
+    const totalCount = counts.reduce((a, b) => a + b, 0);
+    const totalRph = rphVals.reduce((a, b) => a + b, 0);
+
+    let activeDays = 0;
+    for (let d = 1; d <= jmlHari; d++) {
+      const dd = String(d).padStart(2, '0');
+      if ((dailyCodes[adv]?.[dd]?.size || 0) > 0) activeDays++;
+    }
+    const denom = activeDays || 1;
+    const avgCount = Math.round(totalCount / denom);
+    const avgRph = Math.round(totalRph / denom);
+    const rataPerMember = totalCount > 0 ? Math.round(totalRph / totalCount) : 0;
+
+    // Header advisor
+    wsByCall.mergeCells(r, 1, r, 3);
+    const advCell = wsByCall.getCell(r, 1);
+    advCell.value = `${adv.toUpperCase()} (${allUsers[adv] || adv})`;
+    advCell.font = { bold: true, size: 9 };
+    advCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+    const bulanCell = wsByCall.getCell(r, 4);
+    bulanCell.value = namaBulan.toUpperCase();
+    bulanCell.font = { bold: true };
+    bulanCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+    bulanCell.alignment = { horizontal: 'center' };
+    for (let d = 1; d <= jmlHari; d++) {
+      const c = wsByCall.getCell(r, 4 + d);
+      c.value = d;
+      c.font = { bold: true };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+      c.alignment = { horizontal: 'center' };
+    }
+    styleRowBorderAndAlign(wsByCall, r, lastCol, allBorders);
+    r++;
+
+    // Row hari (Sen, Sel, ...)
+    setCell(wsByCall, r, 1, 'TANGGAL', { bold: true });
+    setCell(wsByCall, r, 2, 'AVG', { bold: true, center: true });
+    setCell(wsByCall, r, 3, 'TOTAL', { bold: true, center: true });
+    greyCell(wsByCall, r, 4);
+    for (let d = 1; d <= jmlHari; d++) {
+      const dow = new Date(`${tahun}-${bulan}-${String(d).padStart(2, '0')}T00:00:00`).getDay();
+      setCell(wsByCall, r, 4 + d, HARI_ABBR[dow], { center: true });
+    }
+    styleRowBorderAndAlign(wsByCall, r, lastCol, allBorders);
+    r++;
+
+    // Row Member Belanja
+    setCell(wsByCall, r, 1, 'Member Belanja', { bold: true });
+    setCell(wsByCall, r, 2, avgCount, { center: true });
+    setCell(wsByCall, r, 3, totalCount, { bold: true, center: true });
+    greyCell(wsByCall, r, 4);
+    for (let d = 1; d <= jmlHari; d++) {
+      const dd = String(d).padStart(2, '0');
+      const v = dailyCodes[adv]?.[dd]?.size || 0;
+      setCell(wsByCall, r, 4 + d, v > 0 ? v : null, { center: true });
+    }
+    styleRowBorderAndAlign(wsByCall, r, lastCol, allBorders);
+    r++;
+
+    // Row TOTAL RPH
+    setCell(wsByCall, r, 1, 'TOTAL RPH', { bold: true });
+    setCell(wsByCall, r, 2, avgRph, { center: true, numFmt: rupFmt });
+    setCell(wsByCall, r, 3, totalRph, { bold: true, center: true, numFmt: rupFmt });
+    greyCell(wsByCall, r, 4);
+    for (let d = 1; d <= jmlHari; d++) {
+      const dd = String(d).padStart(2, '0');
+      const v = dailyRph[adv]?.[dd] || 0;
+      setCell(wsByCall, r, 4 + d, v > 0 ? v : null, { center: true, numFmt: rupFmt });
+    }
+    styleRowBorderAndAlign(wsByCall, r, lastCol, allBorders);
+    r++;
+
+    // Row Rata-rata per Member
+    setCell(wsByCall, r, 1, 'Rata-rata per Member', { bold: true });
+    setCell(wsByCall, r, 2, rataPerMember, { center: true, numFmt: rupFmt });
+    setCell(wsByCall, r, 3, rataPerMember, { bold: true, center: true, numFmt: rupFmt });
+    greyCell(wsByCall, r, 4);
+    for (let d = 1; d <= jmlHari; d++) {
+      const dd = String(d).padStart(2, '0');
+      const rphDay = dailyRph[adv]?.[dd] || 0;
+      const countDay = dailyCodes[adv]?.[dd]?.size || 0;
+      const rata = countDay > 0 ? Math.round(rphDay / countDay) : 0;
+      setCell(wsByCall, r, 4 + d, rata > 0 ? rata : null, { center: true, numFmt: rupFmt });
+    }
+    styleRowBorderAndAlign(wsByCall, r, lastCol, allBorders);
+    r++;
+
+    r++; // spacer row
+  }
+}
+
+// ============================================================
 // Monthly matrix report ("LAPORAN HARIAN PRODUKTIFITAS TEAM MR")
 // ============================================================
 dashboardRouter.get('/export-bulanan', async (req, res) => {
@@ -573,95 +792,31 @@ dashboardRouter.get('/export-bulanan', async (req, res) => {
     const gmAdvisorKeys = activeKeys.filter(adv => userTypes[adv] === 'GET' || userTypes[adv] === 'RKM');
 
     // BY CALL punya format bulanan sendiri: hanya member yang berhasil belanja.
-    // Tidak ada Tidak Berhasil, Effective Call, konversi, maupun persentase.
     if (source === 'by_call') {
-      const byCallRows = rkmAdvisorKeys.length > 0
-        ? await fetchSupabaseAllCached<any>(
-            `${visitTable}?select=username,created_at,berhasil_order,kode_member,nama_toko,cabang,no_trx&cabang=eq.${encodeURIComponent(
-              cabang
-            )}&berhasil_order=eq.true&created_at=gte.${tglAwal}T00:00:00%2B07:00&created_at=lte.${tglAkhir}T23:59:59%2B07:00&username=in.(${rkmAdvisorKeys.join(',')})&order=created_at.asc`,
-            { maxRows: Math.max(1000, parseInt(process.env.MAX_EXPORT_ROWS || '20000', 10)), ttlMs: 60_000 }
-          )
-        : [];
-
-      const dailyCodes: Record<string, Record<string, Set<string>>> = {};
-      const memberDayAdvisor: Record<string, string> = {};
-      for (const adv of rkmAdvisorKeys) {
-        dailyCodes[adv] = {};
-        for (let d = 1; d <= jmlHari; d++) dailyCodes[adv][String(d).padStart(2, '0')] = new Set<string>();
-      }
-
-      const byCallSeenByDay = new Set<string>();
-      for (const row of byCallRows || []) {
-        const adv = row.username;
-        const kode = String(row.kode_member || '').trim().toUpperCase();
-        if (!dailyCodes[adv] || !kode) continue;
-        const dt = getWIBDate(row.created_at);
-        const dd = String(dt.getDate()).padStart(2, '0');
-        const orderKey = `${kode}|${dd}`;
-        if (byCallSeenByDay.has(orderKey)) continue;
-        byCallSeenByDay.add(orderKey);
-        dailyCodes[adv][dd].add(kode);
-        memberDayAdvisor[orderKey] = adv;
-      }
-
-      const dailyRph: Record<string, Record<string, number>> = {};
-      for (const adv of rkmAdvisorKeys) {
-        dailyRph[adv] = {};
-        for (let d = 1; d <= jmlHari; d++) dailyRph[adv][String(d).padStart(2, '0')] = 0;
-      }
-
-      const kodeList = Array.from(new Set((byCallRows || []).map((r: any) => String(r.kode_member || '').trim().toUpperCase()).filter(Boolean)));
-      if (kodeList.length > 0) {
-        try {
-          const tglAwalMinus1 = addDays(tglAwal, -1);
-          const rows = await queryLocal(
-            `SELECT H.OBI_KDMEMBER, DATE(H.OBI_TGLPB) AS TGL,
-                    SUM(H.OBI_TTLORDER + H.OBI_TTLPPN - COALESCE(P.CASHBACK_ORDER, 0)) AS TOTAL_RP
-             FROM tbtr_obi_h H
-             INNER JOIN tbmaster_customer C ON H.OBI_KDMEMBER = C.CUS_KODEMEMBER
-             LEFT JOIN (SELECT NO_PB, SUM(CASHBACK_ORDER) AS CASHBACK_ORDER FROM PROMO_KLIKIGR GROUP BY NO_PB) P
-                    ON P.NO_PB = H.OBI_NOPB
-             WHERE C.CUS_KODEIGR = $1 AND H.OBI_KDMEMBER = ANY($2::text[])
-               AND H.OBI_TGLPB BETWEEN $3 AND $4
-               AND (H.OBI_RECID IS NULL OR UPPER(H.OBI_RECID) NOT LIKE '%B%')
-             GROUP BY H.OBI_KDMEMBER, DATE(H.OBI_TGLPB)`,
-            [cabang, kodeList, `${tglAwalMinus1} 00:00:00`, `${tglAkhir} 23:59:59`]
-          );
-          const byMemberDate: Record<string, Record<string, number>> = {};
-          for (const r of rows || []) {
-            const dt = getWIBDate(r.tgl);
-            const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-            const kode = String(r.obi_kdmember || '').trim().toUpperCase();
-            byMemberDate[kode] = byMemberDate[kode] || {};
-            byMemberDate[kode][key] = (byMemberDate[kode][key] || 0) + (parseFloat(r.total_rp) || 0);
-          }
-          for (const [memberDay, adv] of Object.entries(memberDayAdvisor)) {
-            const [kode, dd] = memberDay.split('|');
-            const tglCall = `${tahun}-${bulan}-${dd}`;
-            const prev = addDays(tglCall, -1);
-            const rp = (byMemberDate[kode]?.[tglCall] || 0) + (byMemberDate[kode]?.[prev] || 0);
-            dailyRph[adv][dd] = (dailyRph[adv][dd] || 0) + rp;
-          }
-        } catch {
-          // DB lokal offline: jumlah member tetap tersedia, nilai RPH menjadi 0.
-        }
-      }
-
+      const byCallData = await loadByCallMonthlyData(
+        rkmAdvisorKeys,
+        cabang,
+        tglAwal,
+        tglAkhir,
+        jmlHari,
+        tahun,
+        bulan
+      );
+      const dicetak = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
       const wbByCall = new ExcelJS.Workbook();
-      // Summary bulanan dihapus; hanya data harian yang diexport agar tidak ada agregat ganda.
-      const wsDaily = wbByCall.addWorksheet('Harian By Call');
-      const dayHeaders = Array.from({ length: jmlHari }, (_, i) => String(i + 1).padStart(2, '0'));
-      const hd = wsDaily.addRow(['Advisor', 'Metrik', 'Total', ...dayHeaders]);
-      styleHeaderRow(hd);
-      for (const adv of rkmAdvisorKeys) {
-        const counts = dayHeaders.map((dd) => dailyCodes[adv][dd].size);
-        const rphVals = dayHeaders.map((dd) => dailyRph[adv][dd] || 0);
-        wsDaily.addRow([adv, 'Member Belanja', counts.reduce((a, b) => a + b, 0), ...counts]);
-        wsDaily.addRow([adv, 'RPH', rphVals.reduce((a, b) => a + b, 0), ...rphVals]);
-      }
-      wsDaily.columns.forEach((c, i) => (c.width = i < 3 ? [18, 18, 14][i] : 8));
-
+      addByCallSheet(
+        wbByCall,
+        rkmAdvisorKeys,
+        allUsers,
+        byCallData.dailyCodes,
+        byCallData.dailyRph,
+        jmlHari,
+        namaBulan,
+        tahun,
+        bulan,
+        cabang,
+        dicetak
+      );
       await sendWorkbook(res, wbByCall, `SPI_${cabang}_BY_CALL_BELANJA_${tahun}_${bulan}.xlsx`);
       return;
     }
@@ -1225,6 +1380,34 @@ dashboardRouter.get('/export-bulanan', async (req, res) => {
       gmRow++;
       gmRow++; // spacer row
 
+    }
+
+    // ---------- Sheet 3: By Call (Sheet Mandiri, TIDAK digabung ke total RKM) ----------
+    try {
+      const byCallData = await loadByCallMonthlyData(
+        rkmAdvisorKeys,
+        cabang,
+        tglAwal,
+        tglAkhir,
+        jmlHari,
+        tahun,
+        bulan
+      );
+      addByCallSheet(
+        wb,
+        rkmAdvisorKeys,
+        allUsers,
+        byCallData.dailyCodes,
+        byCallData.dailyRph,
+        jmlHari,
+        namaBulan,
+        tahun,
+        bulan,
+        cabang,
+        dicetak
+      );
+    } catch {
+      // Abaikan jika By Call gagal, agar export RKM utama tetap selesai
     }
 
     // Grand total/ringkasan dihapus sesuai kebutuhan export detail.

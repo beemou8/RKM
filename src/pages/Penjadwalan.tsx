@@ -20,6 +20,7 @@ import {
   Download,
   CheckCircle2,
   Star,
+  ClipboardPaste,
 } from 'lucide-react';
 import {
   fetchScheduleAdvisors,
@@ -28,7 +29,6 @@ import {
   exportSchedule,
   downloadBlob,
   fetchMemberLookup,
-  fetchExistingDay,
   fetchStatusToko,
   importScheduleTemplateUrl,
   importSchedule,
@@ -86,6 +86,8 @@ export default function Penjadwalan() {
   const [manualHeader, setManualHeader] = useState({ tanggal: '', username: '' });
   const [manualRows, setManualRows] = useState<ManualRow[]>([newManualRow(1)]);
   const [manualRowIdSeq, setManualRowIdSeq] = useState(2);
+  const [showQuickPaste, setShowQuickPaste] = useState(false);
+  const [quickPasteText, setQuickPasteText] = useState('');
 
   // State untuk Modal Import Excel
   const [showImportModal, setShowImportModal] = useState(false);
@@ -212,6 +214,44 @@ export default function Penjadwalan() {
     return () => timers.forEach(clearTimeout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manualRows.map((r) => r.kode_member).join('|'), cabang, showManualModal]);
+
+  // Handler Quick Paste: parse teks multi-baris → baris-baris form
+  const handleQuickPaste = () => {
+    const lines = quickPasteText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) return;
+    let nextId = manualRowIdSeq;
+    const newRows: ManualRow[] = lines.map((line) => {
+      // Format: "KODE_MEMBER NAMA_TOKO" atau "KODE_MEMBER\tNAMA_TOKO" atau hanya "KODE_MEMBER"
+      const parts = line.split(/[\t]+/);
+      let kode = '';
+      let nama = '';
+      if (parts.length >= 2) {
+        // Tab-separated (dari Excel)
+        kode = parts[0].trim().toUpperCase();
+        nama = parts.slice(1).join(' ').trim().toUpperCase();
+      } else {
+        // Spasi-separated: kode member = kata pertama, sisanya = nama toko
+        const words = line.split(/\s+/);
+        kode = (words[0] || '').toUpperCase();
+        nama = words.slice(1).join(' ').toUpperCase();
+      }
+      const row = newManualRow(nextId++);
+      row.kode_member = kode;
+      row.nama_toko = nama;
+      return row;
+    });
+    setManualRowIdSeq(nextId);
+    // Jika baris pertama masih kosong, ganti. Jika sudah ada isian, tambahkan di bawah.
+    setManualRows((existing) => {
+      const hasContent = existing.some((r) => r.kode_member.trim() || r.nama_toko.trim());
+      return hasContent ? [...existing, ...newRows] : newRows;
+    });
+    setQuickPasteText('');
+    setShowQuickPaste(false);
+  };
 
   const selectedCount = Object.values(checked).filter(Boolean).length;
 
@@ -735,7 +775,7 @@ export default function Penjadwalan() {
               <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                 <Plus className="w-4 h-4 text-amber-400" /> Input Jadwal Manual
               </h2>
-              <button onClick={() => { setShowManualModal(false); setManualHeader({ tanggal: '', username: '' }); setManualRows([newManualRow(1)]); setManualRowIdSeq(2); }} className="text-[var(--text-muted)] hover:text-white transition-colors">
+              <button onClick={() => { setShowManualModal(false); setManualHeader({ tanggal: '', username: '' }); setManualRows([newManualRow(1)]); setManualRowIdSeq(2); setShowQuickPaste(false); setQuickPasteText(''); }} className="text-[var(--text-muted)] hover:text-white transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -768,6 +808,38 @@ export default function Penjadwalan() {
                   </Select>
                 </div>
               </div>
+
+              {/* Quick Paste toggle */}
+              {!showQuickPaste ? (
+                <button
+                  type="button"
+                  onClick={() => setShowQuickPaste(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-blue-500/40 text-blue-400 text-xs hover:bg-blue-500/5 transition-colors"
+                >
+                  <ClipboardPaste className="w-3.5 h-3.5" /> Tempel Daftar dari WA / Excel
+                </button>
+              ) : (
+                <div className="p-3 rounded-xl border border-blue-500/30 bg-blue-500/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <ClipboardPaste className="w-3.5 h-3.5" /> Quick Paste
+                    </span>
+                    <button type="button" onClick={() => { setShowQuickPaste(false); setQuickPasteText(''); }} className="text-[var(--text-muted)] hover:text-white">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={quickPasteText}
+                    onChange={(e) => setQuickPasteText(e.target.value)}
+                    placeholder={"2T000001\tTOKO ABC\n2T000002\tTOKO XYZ"}
+                    rows={4}
+                    className="w-full text-xs font-mono p-2 rounded-lg bg-[var(--bg-inset)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-faint)] resize-none focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                  />
+                  <Button type="button" variant="primary" className="w-full justify-center" onClick={handleQuickPaste} disabled={!quickPasteText.trim()}>
+                    <ClipboardPaste className="w-3.5 h-3.5 mr-1.5" /> Tambahkan {quickPasteText.split('\n').filter((l) => l.trim()).length} Baris
+                  </Button>
+                </div>
+              )}
 
               {/* Daftar baris toko */}
               <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">

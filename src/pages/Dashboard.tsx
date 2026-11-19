@@ -143,6 +143,25 @@ export function PerformanceDashboard({
     return filteredGagal.slice(start, start + pageSizeGagal);
   }, [filteredGagal, pageGagal, pageSizeGagal]);
 
+  // Top Toko Sering Menolak: group by kode_member, hitung berapa kali gagal order
+  const topTokoMenolak = useMemo(() => {
+    if (!data?.data_gagal || data.data_gagal.length === 0) return [];
+    const countMap: Record<string, { kode_member: string; nama_toko: string; count: number; kategoris: Set<string> }> = {};
+    for (const g of data.data_gagal) {
+      const kode = g.kode_member || '';
+      if (!kode) continue;
+      if (!countMap[kode]) {
+        countMap[kode] = { kode_member: kode, nama_toko: g.nama_toko || '-', count: 0, kategoris: new Set() };
+      }
+      countMap[kode].count++;
+      if (g.kategori_tidak_order) countMap[kode].kategoris.add(g.kategori_tidak_order);
+    }
+    return Object.values(countMap)
+      .filter((t) => t.count >= 2)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [data?.data_gagal]);
+
   return (
     <div className="max-w-[1600px] mx-auto space-y-5">
       <Card className="p-5">
@@ -349,6 +368,47 @@ export function PerformanceDashboard({
                 emptyText="Tidak ada penolakan member baru pada periode ini"
               />
             </div>
+          )}
+
+          {/* Top Toko Sering Menolak */}
+          {topTokoMenolak.length > 0 && (
+            <Card>
+              <CardHeader
+                title="Top Toko Sering Menolak Order"
+                icon={XCircle}
+                right={<Badge tone="rose">{topTokoMenolak.length} Toko</Badge>}
+              />
+              <div className="max-h-[300px] overflow-y-auto divide-y divide-[var(--border)]">
+                {topTokoMenolak.map((t, i) => (
+                  <div key={t.kode_member} className="flex items-center justify-between p-3 gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`w-6 h-6 rounded flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                        i < 3 ? 'bg-rose-500/20 text-rose-400' : 'bg-[var(--wash-1)] text-[var(--text-muted)]'
+                      }`}>
+                        {i + 1}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-mono text-xs text-[var(--text-secondary)]">{t.kode_member}</div>
+                        <div className="text-xs text-[var(--text-faint)] truncate max-w-[200px]">{t.nama_toko}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {Array.from(t.kategoris).slice(0, 2).map((k) => (
+                        <span key={k} className="text-[9px] text-amber-300/80 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 truncate max-w-[100px]">{k}</span>
+                      ))}
+                      <span className="text-[11px] font-bold text-rose-400 bg-rose-500/10 px-2 py-1 rounded border border-rose-500/20">
+                        {t.count}×
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="p-3 border-t border-[var(--border)]">
+                <p className="text-[10px] text-[var(--text-faint)]">
+                  Toko yang menolak order ≥2× pada periode ini. Pertimbangkan evaluasi ulang strategi kunjungan.
+                </p>
+              </div>
+            </Card>
           )}
 
           <div className={`grid grid-cols-1 ${isByCall ? '' : 'lg:grid-cols-2'} gap-5`}>

@@ -1,4 +1,4 @@
-﻿// ============================================================
+// ============================================================
 // Types matching the real data sources (Supabase + local Postgres)
 // ============================================================
 
@@ -75,6 +75,7 @@ export interface MemberTipeResponse {
   data: MemberTipeRow[];
   totals: { aktif: number; sleeper: number; belum_aktivasi: number; tidak_aktif: number; member_pilihan: number; total: number };
   db_lokal_connected: boolean;
+  toko_cabang?: { nama_toko?: string; lat: number; lng: number } | null;
 }
 
 /** tbtr_status_toko (Supabase) */

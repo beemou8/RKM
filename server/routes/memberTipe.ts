@@ -1,4 +1,4 @@
-﻿import { Router } from 'express';
+import { Router } from 'express';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { fetchSupabase, updateSupabase } from '../lib/supabase.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
@@ -14,10 +14,13 @@ export interface MemberTipeRow {
   kode_member: string;
   nama_member: string;
   advisor?: string | null;
+  cabang?: string;
   belanja_pertama?: string | null;
   belanja_terakhir?: string | null;
   tipe: MemberTipe;
   member_pilihan?: boolean;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 export interface MemberTipeTotals {
@@ -32,7 +35,7 @@ export interface MemberTipeTotals {
 function parseLimit(value: unknown): number {
   const parsed = Number(value ?? 250);
   if (!Number.isFinite(parsed)) return 250;
-  return Math.min(Math.max(Math.trunc(parsed), 1), 1000);
+  return Math.min(Math.max(Math.trunc(parsed), 1), 5000);
 }
 
 function parseTipe(value: unknown): MemberTipeFilter {
@@ -48,12 +51,25 @@ function parsePeriode(req: any) {
   return { bulan, tahun };
 }
 
+function parseCoords(koordinat: string | null | undefined): { lat: number | null; lng: number | null } {
+  if (!koordinat) return { lat: null, lng: null };
+  const parts = String(koordinat).split(',');
+  if (parts.length !== 2) return { lat: null, lng: null };
+  const lat = parseFloat(parts[0].trim());
+  const lng = parseFloat(parts[1].trim());
+  if (Number.isNaN(lat) || Number.isNaN(lng) || Math.abs(lat) < 0.01 || Math.abs(lng) < 0.01) {
+    return { lat: null, lng: null };
+  }
+  return { lat, lng };
+}
+
 const KLASIFIKASI_CTE = `
   WITH klas AS (
     SELECT
       cust.cus_kodemember   AS kode_member,
       cust.cus_namamember   AS nama_member,
       cust.cus_pic_member   AS advisor,
+      crm.crm_koordinat     AS koordinat,
       TO_CHAR(b.belanja_pertama, 'YYYY-MM-DD')  AS belanja_pertama,
       TO_CHAR(b.belanja_terakhir, 'YYYY-MM-DD') AS belanja_terakhir,
       CASE
@@ -63,6 +79,7 @@ const KLASIFIKASI_CTE = `
         ELSE 'Aktif'
       END AS tipe
     FROM tbmaster_customer cust
+    LEFT JOIN tbmaster_customercrm crm ON cust.cus_kodemember = crm.crm_kodemember
     LEFT JOIN (
       SELECT
         jh_cus_kodemember,
@@ -84,13 +101,28 @@ async function getPilihanCodes(cabang: string): Promise<string[]> {
   return Array.from(new Set((rows || []).map((r: any) => String(r.kode_member || '').trim().toUpperCase()).filter(Boolean)));
 }
 
+async function getTokoCabang(cabang: string): Promise<{ nama_toko?: string; lat: number; lng: number } | null> {
+  try {
+    const rows = await fetchSupabase<any>(`tbmaster_tikortoko?cabang=ilike.${encodeURIComponent(cabang)}&limit=1`);
+    if (rows && rows[0] && rows[0].latitude && rows[0].longitude) {
+      return {
+        nama_toko: rows[0].nama_toko || `Cabang ${cabang}`,
+        lat: parseFloat(rows[0].latitude),
+        lng: parseFloat(rows[0].longitude),
+      };
+    }
+  } catch {}
+  return null;
+}
+
 async function queryMemberRows(cabang: string, tipe: MemberTipeFilter, limit: number, pilihanCodes: string[], search: string = ''): Promise<MemberTipeRow[]> {
   const searchPattern = search.trim() ? `%${search.trim().toLowerCase()}%` : '';
+  let rows: any[] = [];
   if (tipe === 'Member Pilihan') {
     if (pilihanCodes.length === 0) return [];
-    const rows = await queryLocal<MemberTipeRow>(
+    rows = await queryLocal<any>(
       `${KLASIFIKASI_CTE}
-       SELECT kode_member, nama_member, advisor, belanja_pertama, belanja_terakhir, tipe
+       SELECT kode_member, nama_member, advisor, koordinat, belanja_pertama, belanja_terakhir, tipe
        FROM klas
        WHERE UPPER(kode_member) = ANY($2::text[])
          AND ($4 = '' OR LOWER(kode_member) LIKE $4 OR LOWER(nama_member) LIKE $4 OR LOWER(COALESCE(advisor, '')) LIKE $4)
@@ -98,23 +130,35 @@ async function queryMemberRows(cabang: string, tipe: MemberTipeFilter, limit: nu
        LIMIT $3`,
       [cabang, pilihanCodes, limit, searchPattern]
     );
-    return rows.map((r) => ({ ...r, member_pilihan: true }));
+  } else {
+    rows = await queryLocal<any>(
+      `${KLASIFIKASI_CTE}
+       SELECT kode_member, nama_member, advisor, koordinat, belanja_pertama, belanja_terakhir, tipe
+       FROM klas
+       WHERE (($2 = 'semua')
+          OR ($2 = 'butuh_visit' AND tipe IN ('Sleeper', 'Belum Aktivasi'))
+          OR (tipe = $2))
+         AND ($4 = '' OR LOWER(kode_member) LIKE $4 OR LOWER(nama_member) LIKE $4 OR LOWER(COALESCE(advisor, '')) LIKE $4)
+       ORDER BY belanja_terakhir ASC NULLS FIRST
+       LIMIT $3`,
+      [cabang, tipe, limit, searchPattern]
+    );
   }
-
-  const rows = await queryLocal<MemberTipeRow>(
-    `${KLASIFIKASI_CTE}
-     SELECT kode_member, nama_member, advisor, belanja_pertama, belanja_terakhir, tipe
-     FROM klas
-     WHERE (($2 = 'semua')
-        OR ($2 = 'butuh_visit' AND tipe IN ('Sleeper', 'Belum Aktivasi'))
-        OR (tipe = $2))
-       AND ($4 = '' OR LOWER(kode_member) LIKE $4 OR LOWER(nama_member) LIKE $4 OR LOWER(COALESCE(advisor, '')) LIKE $4)
-     ORDER BY belanja_terakhir ASC NULLS FIRST
-     LIMIT $3`,
-    [cabang, tipe, limit, searchPattern]
-  );
   const pilihanSet = new Set(pilihanCodes);
-  return rows.map((r) => ({ ...r, member_pilihan: pilihanSet.has(String(r.kode_member || '').trim().toUpperCase()) }));
+  return rows.map((r) => {
+    const coords = parseCoords(r.koordinat);
+    return {
+      kode_member: r.kode_member,
+      nama_member: r.nama_member,
+      advisor: r.advisor,
+      belanja_pertama: r.belanja_pertama,
+      belanja_terakhir: r.belanja_terakhir,
+      tipe: r.tipe,
+      member_pilihan: tipe === 'Member Pilihan' ? true : pilihanSet.has(String(r.kode_member || '').trim().toUpperCase()),
+      lat: coords.lat,
+      lng: coords.lng,
+    };
+  });
 }
 
 async function queryTotals(cabang: string, memberPilihan: number): Promise<MemberTipeTotals> {
@@ -153,11 +197,12 @@ memberTipeRouter.get('/', async (req, res) => {
     const search = String(req.query.search || '').trim();
     const { bulan, tahun } = parsePeriode(req);
     const pilihanCodes = await getPilihanCodes(cabang);
-    const [data, totals] = await Promise.all([
+    const [data, totals, toko_cabang] = await Promise.all([
       queryMemberRows(cabang, tipe, limit, pilihanCodes, search),
       queryTotals(cabang, pilihanCodes.length),
+      getTokoCabang(cabang),
     ]);
-    res.json({ data, totals, bulan, tahun, db_lokal_connected: getDbStatus().connected });
+    res.json({ data, totals, toko_cabang, bulan, tahun, db_lokal_connected: getDbStatus().connected });
   } catch (err: any) {
     console.error('[member-tipe] GET error:', err);
     res.status(500).json({ error: err?.message || 'Gagal mengambil data member tipe' });
@@ -174,14 +219,14 @@ memberTipeRouter.get('/export', async (req, res) => {
     const cabang = branch.cabang;
     const { bulan, tahun } = parsePeriode(req);
     const pilihanCodes = await getPilihanCodes(cabang);
-    const data = await queryMemberRows(cabang, 'semua', 500, pilihanCodes);
+    const data = await queryMemberRows(cabang, 'semua', 5000, pilihanCodes);
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Member Tipe');
     ws.addRow([`Dashboard Member - Cabang ${cabang}`]);
     ws.addRow([`Member Pilihan aktif cabang ${cabang}`]);
     ws.addRow([]);
-    const header = ws.addRow(['Kode Member', 'Nama Member', 'Advisor', 'Belanja Pertama', 'Belanja Terakhir', 'Tipe', 'Member Pilihan']);
+    const header = ws.addRow(['Kode Member', 'Nama Member', 'Advisor', 'Belanja Pertama', 'Belanja Terakhir', 'Tipe', 'Member Pilihan', 'Latitude', 'Longitude']);
     styleHeaderRow(header);
     for (const row of data) {
       ws.addRow([
@@ -192,6 +237,8 @@ memberTipeRouter.get('/export', async (req, res) => {
         row.belanja_terakhir || '-',
         row.tipe,
         row.member_pilihan ? 'YA' : '-',
+        row.lat ?? '-',
+        row.lng ?? '-',
       ]);
     }
     ws.columns.forEach((c) => (c.width = 22));

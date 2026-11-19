@@ -538,7 +538,7 @@ export function fetchMemberTipe(
   // Batasi nilai yang dikirim agar request tidak bisa meminta data terlalu besar.
   const limit =
     requestedLimit !== undefined && Number.isFinite(requestedLimit)
-      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000)
+      ? Math.min(Math.max(Math.trunc(requestedLimit), 1), 5000)
       : undefined;
 
   const q = new URLSearchParams({ cabang });

@@ -1,7 +1,7 @@
 {
   "name": "rkm-visit-monitoring",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.3.51",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
