@@ -1,4 +1,4 @@
-markdown
+﻿markdown
 # 📚 Dokumentasi Lengkap API & Fungsi Sistem RKM
 Dokumentasi ini mencakup arsitektur sistem, seluruh endpoint REST API Express, fungsi helper backend, mekanisme sinkronisasi database ganda (PostgreSQL Lokal & Supabase Cloud Relay), serta fungsi API client di frontend React (`src/lib/api.ts`).
 ---
@@ -904,7 +904,7 @@ typescript
 interface CustomerCandidate {
   cus_kodemember: string;       // Kode unik member (contoh: '2T0001')
   cus_namamember: string;       // Nama toko / member
-  cus_nosalesman?: string;      // Kode / username advisor yang membina
+  cus_pic_member?: string;      // Kode / username advisor yang membina
   cus_kodeigr?: string;         // Kode cabang (contoh: '2T')
   lat: number;                  // Latitude GPS toko
   lng: number;                  // Longitude GPS toko

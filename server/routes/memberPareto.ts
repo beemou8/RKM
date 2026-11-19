@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { fetchSupabase, fetchSupabaseAll, insertSupabase, updateSupabase, deleteSupabase, upsertManySupabase } from '../lib/supabase.js';
@@ -233,7 +233,7 @@ memberParetoRouter.get('/analisis', async (req, res) => {
     let advisorFilterSql = '';
     if (petugas) {
       params.push(petugas);
-      advisorFilterSql = ` AND LOWER(TRIM(c.cus_nosalesman)) = LOWER(TRIM($${params.length}))`;
+      advisorFilterSql = ` AND LOWER(TRIM(c.cus_pic_member)) = LOWER(TRIM($${params.length}))`;
     }
     let kodeMemberFilterSql = '';
     if (kodeMember) {
@@ -248,7 +248,7 @@ memberParetoRouter.get('/analisis', async (req, res) => {
           SELECT UNNEST($2::text[]) AS prd_prdcd
       ),
       branch_customers AS (
-          SELECT c.cus_kodemember, c.cus_namamember, c.cus_nosalesman, c.cus_kodeigr
+          SELECT c.cus_kodemember, c.cus_namamember, c.cus_pic_member, c.cus_kodeigr
           FROM tbmaster_customer c
           WHERE c.cus_kodeigr = $1
             AND c.cus_namamember <> 'NEW'
@@ -268,7 +268,7 @@ memberParetoRouter.get('/analisis', async (req, res) => {
       SELECT 
           c.cus_kodemember AS kode_member,
           c.cus_namamember AS nama_member,
-          COALESCE(TRIM(c.cus_nosalesman), '') AS username,
+          COALESCE(TRIM(c.cus_pic_member), '') AS username,
           rb.belanja_pertama,
           rb.belanja_terakhir,
           p.prd_prdcd,
@@ -287,7 +287,7 @@ memberParetoRouter.get('/analisis', async (req, res) => {
             AND e.trjd_prdcd          = t.prd_prdcd
             AND e.trjd_transactiondate BETWEEN $3 AND $4
       )
-      ORDER BY c.cus_nosalesman ASC, c.cus_kodemember ASC, p.prd_prdcd ASC;
+      ORDER BY c.cus_pic_member ASC, c.cus_kodemember ASC, p.prd_prdcd ASC;
     `;
 
     const rows = await queryLocal<any>(sql, params);
@@ -304,12 +304,12 @@ memberParetoRouter.get('/analisis', async (req, res) => {
 
     // Ambil daftar seluruh advisor aktif cabang untuk dropdown filter
     const allAdvisorsRows = await queryLocal<any>(
-      `SELECT DISTINCT TRIM(cus_nosalesman) AS advisor
+      `SELECT DISTINCT TRIM(cus_pic_member) AS advisor
        FROM tbmaster_customer
        WHERE cus_kodeigr = $1
          AND cus_namamember <> 'NEW'
          AND (cus_recordid != '1' OR cus_recordid IS NULL)
-         AND NULLIF(TRIM(COALESCE(cus_nosalesman, '')), '') IS NOT NULL
+         AND NULLIF(TRIM(COALESCE(cus_pic_member, '')), '') IS NOT NULL
        ORDER BY advisor ASC`,
       [cabang]
     ).catch(() => []);
@@ -361,7 +361,7 @@ memberParetoRouter.post('/upload', async (req, res) => {
     const nowIso = new Date().toISOString();
     const rowsToInsert = items.map((it: any) => ({
       cabang: String(cabang).trim(),
-      username: String(it.username || it.cus_nosalesman || '').trim(),
+      username: String(it.username || it.cus_pic_member || '').trim(),
       kode_member: String(it.kode_member || it.cus_kodemember || '').trim().toUpperCase(),
       nama_member: String(it.nama_member || it.cus_namamember || '').trim(),
       belanja_pertama: it.belanja_pertama || null,
@@ -612,7 +612,7 @@ memberParetoRouter.get('/export', async (req, res) => {
       let advisorFilterSql = '';
       if (petugas) {
         params.push(petugas);
-        advisorFilterSql = ` AND LOWER(TRIM(c.cus_nosalesman)) = LOWER(TRIM($${params.length}))`;
+        advisorFilterSql = ` AND LOWER(TRIM(c.cus_pic_member)) = LOWER(TRIM($${params.length}))`;
       }
       let kodeMemberFilterSql = '';
       if (kodeMember) {
@@ -625,7 +625,7 @@ memberParetoRouter.get('/export', async (req, res) => {
             SELECT UNNEST($2::text[]) AS prd_prdcd
         ),
         branch_customers AS (
-            SELECT c.cus_kodemember, c.cus_namamember, c.cus_nosalesman, c.cus_kodeigr
+            SELECT c.cus_kodemember, c.cus_namamember, c.cus_pic_member, c.cus_kodeigr
             FROM tbmaster_customer c
             WHERE c.cus_kodeigr = $1
               AND c.cus_namamember <> 'NEW'
@@ -645,7 +645,7 @@ memberParetoRouter.get('/export', async (req, res) => {
         SELECT 
             c.cus_kodemember AS kode_member,
             c.cus_namamember AS nama_member,
-            COALESCE(TRIM(c.cus_nosalesman), '') AS username,
+            COALESCE(TRIM(c.cus_pic_member), '') AS username,
             rb.belanja_pertama,
             rb.belanja_terakhir,
             p.prd_prdcd,
@@ -664,7 +664,7 @@ memberParetoRouter.get('/export', async (req, res) => {
               AND e.trjd_prdcd          = t.prd_prdcd
               AND e.trjd_transactiondate BETWEEN $3 AND $4
         )
-        ORDER BY c.cus_nosalesman ASC, c.cus_kodemember ASC, p.prd_prdcd ASC;
+        ORDER BY c.cus_pic_member ASC, c.cus_kodemember ASC, p.prd_prdcd ASC;
       `;
 
       const rows = await queryLocal<any>(sql, params);

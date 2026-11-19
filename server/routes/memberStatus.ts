@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import { fetchSupabaseAll } from '../lib/supabase.js';
 import { queryLocal, getDbStatus } from '../lib/db.js';
@@ -56,19 +56,19 @@ async function buildMemberStatus(cabang: string, petugas: string, source: Member
     let advisorWhere = '';
     if (petugas) {
       params.push(petugas);
-      advisorWhere = ` AND LOWER(TRIM(COALESCE(cust.cus_nosalesman, ''))) = LOWER(TRIM($2))`;
+      advisorWhere = ` AND LOWER(TRIM(COALESCE(cust.cus_pic_member, ''))) = LOWER(TRIM($2))`;
     }
 
     const customers = await queryLocal<any>(
       `SELECT cust.cus_kodemember AS kode_member,
               cust.cus_namamember AS nama_member,
-              cust.cus_nosalesman AS advisor
+              cust.cus_pic_member AS advisor
        FROM tbmaster_customer cust
        WHERE cust.cus_kodeigr = $1
          AND cust.cus_namamember <> 'NEW'
          AND (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)
          ${advisorWhere}
-       ORDER BY cust.cus_nosalesman ASC NULLS LAST, cust.cus_namamember ASC`,
+       ORDER BY cust.cus_pic_member ASC NULLS LAST, cust.cus_namamember ASC`,
       params
     );
 
@@ -108,12 +108,12 @@ async function buildMemberStatus(cabang: string, petugas: string, source: Member
     let advisorList = Array.from(advisorSet).sort();
     if (petugas) {
       const allAdvisors = await queryLocal<any>(
-        `SELECT DISTINCT TRIM(cust.cus_nosalesman) AS advisor
+        `SELECT DISTINCT TRIM(cust.cus_pic_member) AS advisor
          FROM tbmaster_customer cust
          WHERE cust.cus_kodeigr = $1
            AND cust.cus_namamember <> 'NEW'
            AND (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)
-           AND NULLIF(TRIM(COALESCE(cust.cus_nosalesman, '')), '') IS NOT NULL
+           AND NULLIF(TRIM(COALESCE(cust.cus_pic_member, '')), '') IS NOT NULL
          ORDER BY advisor ASC`,
         [cabang]
       );

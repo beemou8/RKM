@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // Types matching the real data sources (Supabase + local Postgres)
 // ============================================================
 
@@ -111,7 +111,7 @@ export interface MemberBaru {
 export interface CustomerCandidate {
   cus_kodemember: string;
   cus_namamember: string;
-  cus_nosalesman: string;
+  cus_pic_member: string;
   cus_kodeigr: string;
   crm_koordinat: string;
   lat: number;
@@ -400,7 +400,7 @@ export interface ParetoProductItem {
 export interface MemberParetoRow {
   kode_member: string;
   nama_member: string;
-  username: string; // cus_nosalesman
+  username: string; // cus_pic_member
   belanja_pertama: string | null;
   belanja_terakhir: string | null;
   prd_prdcd: string;

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { getTableVersion, fetchSupabase, fetchSupabaseCached, fetchSupabaseAll, insertSupabase, insertManySupabase, updateSupabase, deleteSupabase } from '../lib/supabase.js';
 import { distanceKm, bearing } from '../lib/geo.js';
@@ -114,13 +114,13 @@ scheduleRouter.get('/advisors', async (req, res) => {
     }
     const cabang = branch.cabang;
     const rows = await queryLocal(
-      `SELECT DISTINCT cus_nosalesman FROM tbmaster_customer
+      `SELECT DISTINCT cus_pic_member FROM tbmaster_customer
        WHERE cus_kodeigr = $1 AND cus_recordid IS NULL
-  AND cus_namamember <>'NEW' and cus_nosalesman IS NOT NULL AND cus_nosalesman != ''
-       ORDER BY cus_nosalesman ASC`,
+  AND cus_namamember <>'NEW' and cus_pic_member IS NOT NULL AND cus_pic_member != ''
+       ORDER BY cus_pic_member ASC`,
       [cabang]
     );
-    res.json({ advisors: rows.map((r) => r.cus_nosalesman), db_lokal_connected: getDbStatus().connected });
+    res.json({ advisors: rows.map((r) => r.cus_pic_member), db_lokal_connected: getDbStatus().connected });
   } catch (err: any) {
     res.status(500).json({ error: err.message, db_lokal_connected: false });
   }
@@ -286,24 +286,24 @@ async function generateMatrix(params: {
   let advisorToProcess: string[] = [];
   if (modeFull) {
     const rows = await queryLocal(
-      `SELECT DISTINCT cus_nosalesman FROM tbmaster_customer
+      `SELECT DISTINCT cus_pic_member FROM tbmaster_customer
        WHERE cus_kodeigr = $1 AND cus_recordid IS NULL
-         AND cus_namamember <> 'NEW' AND cus_nosalesman IS NOT NULL AND cus_nosalesman != ''
-       ORDER BY cus_nosalesman ASC`,
+         AND cus_namamember <> 'NEW' AND cus_pic_member IS NOT NULL AND cus_pic_member != ''
+       ORDER BY cus_pic_member ASC`,
       [cabang]
     );
-    advisorToProcess = rows.map((r) => r.cus_nosalesman);
+    advisorToProcess = rows.map((r) => r.cus_pic_member);
   } else if (petugas) {
     advisorToProcess = [petugas];
   } else {
     const rows = await queryLocal(
-      `SELECT DISTINCT cus_nosalesman FROM tbmaster_customer
+      `SELECT DISTINCT cus_pic_member FROM tbmaster_customer
        WHERE cus_kodeigr = $1 AND cus_recordid IS NULL
-         AND cus_namamember <> 'NEW' AND cus_nosalesman IS NOT NULL AND cus_nosalesman != ''
-       ORDER BY cus_nosalesman ASC`,
+         AND cus_namamember <> 'NEW' AND cus_pic_member IS NOT NULL AND cus_pic_member != ''
+       ORDER BY cus_pic_member ASC`,
       [cabang]
     );
-    advisorToProcess = rows.map((r) => r.cus_nosalesman);
+    advisorToProcess = rows.map((r) => r.cus_pic_member);
   }
 
   // Daftar ini sudah divalidasi saat upload. Diambil sekali untuk seluruh advisor.
@@ -325,11 +325,11 @@ async function generateMatrix(params: {
     const pilihanCodes = new Set(pilihanRows.map((r) => normCode(r.kode_member)));
 
     const custRowsRaw = await queryLocal(
-      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_nosalesman, cust.cus_kodeigr, crm.crm_koordinat
+      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_pic_member, cust.cus_kodeigr, crm.crm_koordinat
        FROM tbmaster_customer cust
        INNER JOIN tbmaster_customercrm crm ON cust.cus_kodemember = crm.crm_kodemember
        WHERE cust.cus_kodeigr = $1
-         AND cust.cus_nosalesman = $2
+         AND cust.cus_pic_member = $2
          AND (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)`,
       [cabang, u]
     );
@@ -1040,7 +1040,7 @@ scheduleRouter.get('/member-lookup', async (req, res) => {
     // Klasifikasi SQL langsung untuk lookup manual
     // DITAMBAHKAN FILTER: (cust.cus_recordid != '1' OR cust.cus_recordid IS NULL)
     const rows = await queryLocal(
-      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_nosalesman, cust.cus_kodeigr, crm.crm_koordinat,
+      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_pic_member, cust.cus_kodeigr, crm.crm_koordinat,
               CASE
                   WHEN b.belanja_pertama IS NULL THEN 'Belum Aktivasi'
                   WHEN b.belanja_terakhir < CURRENT_DATE - INTERVAL '3 months' THEN 'Sleeper'
@@ -1087,7 +1087,7 @@ scheduleRouter.get('/member-lookup', async (req, res) => {
       blocked: false,
       nama_toko: row.cus_namamember,
       cabang: row.cus_kodeigr,
-      username_pemilik: row.cus_nosalesman,
+      username_pemilik: row.cus_pic_member,
       lat,
       lng,
       tipe_member: row.tipe_member, // Mengambil hasil dari SQL
@@ -1158,7 +1158,7 @@ scheduleRouter.get('/riwayat', async (req, res) => {
         id: r.id,
         cus_kodemember: r.kode_member,
         cus_namamember: r.nama_toko,
-        cus_nosalesman: r.username,
+        cus_pic_member: r.username,
         cus_kodeigr: r.cabang,
         crm_koordinat: r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : '',
         lat: r.latitude,
@@ -1218,7 +1218,7 @@ scheduleRouter.get('/belum-terkunjungi', async (req, res) => {
         id: r.id,
         cus_kodemember: r.kode_member,
         cus_namamember: r.nama_toko,
-        cus_nosalesman: r.username,
+        cus_pic_member: r.username,
         cus_kodeigr: r.cabang,
         crm_koordinat: r.latitude && r.longitude ? `${r.latitude}, ${r.longitude}` : '',
         lat: r.latitude,
@@ -1677,7 +1677,7 @@ scheduleRouter.post('/member-pilihan-upload', async (req, res) => {
 
     const codes = input.map((x) => x.kode);
     const localRows = await queryLocal<any>(
-      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_nosalesman, cust.cus_recordid, crm.crm_koordinat
+      `SELECT cust.cus_kodemember, cust.cus_namamember, cust.cus_pic_member, cust.cus_recordid, crm.crm_koordinat
        FROM tbmaster_customer cust
        LEFT JOIN tbmaster_customercrm crm ON crm.crm_kodemember = cust.cus_kodemember
        WHERE cust.cus_kodeigr = $1
@@ -1704,7 +1704,7 @@ scheduleRouter.post('/member-pilihan-upload', async (req, res) => {
         skipped.push({ row: item.row, reason: `Kode ${item.kode} terdaftar di Toko Tutup.` });
         continue;
       }
-      const username = String(row.cus_nosalesman || '').trim();
+      const username = String(row.cus_pic_member || '').trim();
       if (!username) {
         skipped.push({ row: item.row, reason: `Kode ${item.kode} belum memiliki advisor/MR.` });
         continue;
@@ -2371,7 +2371,7 @@ scheduleRouter.post('/spv-generate', async (req, res) => {
       const item = {
         cus_kodemember: r.kode_member,
         cus_namamember: r.nama_toko || coords?.nama_toko || 'Toko ' + r.kode_member,
-        cus_nosalesman: spvUsername,
+        cus_pic_member: spvUsername,
         cus_kodeigr: cabang,
         crm_koordinat: coords ? `${coords.lat}, ${coords.lng}` : '',
         lat: coords?.lat ?? null,

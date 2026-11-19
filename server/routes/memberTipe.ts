@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { queryLocal, getDbStatus } from '../lib/db.js';
 import { fetchSupabase, updateSupabase } from '../lib/supabase.js';
 import { sendWorkbook, styleHeaderRow } from '../lib/excel.js';
@@ -53,7 +53,7 @@ const KLASIFIKASI_CTE = `
     SELECT
       cust.cus_kodemember   AS kode_member,
       cust.cus_namamember   AS nama_member,
-      cust.cus_nosalesman   AS advisor,
+      cust.cus_pic_member   AS advisor,
       TO_CHAR(b.belanja_pertama, 'YYYY-MM-DD')  AS belanja_pertama,
       TO_CHAR(b.belanja_terakhir, 'YYYY-MM-DD') AS belanja_terakhir,
       CASE
