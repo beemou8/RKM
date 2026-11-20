@@ -19,6 +19,7 @@ import {
   PanelLeftOpen,
   AlertCircle,
   UserCheck,
+  Users,
 } from 'lucide-react';
 import { fetchDbStatus, fetchCabangList } from '../lib/api';
 import type { DbStatus } from '../types';
@@ -60,7 +61,7 @@ const NAV_GROUPS: Array<{
       { to: '/status-kunjungan-member', label: 'Status Kunjungan', icon: UserCheck },
       { to: '/member-baru', label: 'Member Baru', icon: UserPlus },
       { to: '/member-pareto', label: 'Member Pareto', icon: PackageCheck },
-      { to: '/member-sleeper', label: 'Member Sleeper', icon: Moon },
+      { to: '/tipe-member', label: 'Tipe Member', icon: Users },
       { to: '/toko-tutup', label: 'Toko Tutup', icon: Store },
     ],
   },
@@ -79,7 +80,9 @@ const ROUTE_TITLES: Record<string, string> = {
   '/toko-tutup': 'Toko Tutup',
   '/status-kunjungan-member': 'Status Kunjungan Member',
   '/member-baru': 'Member Baru',
-  '/member-sleeper': 'Member Sleeper',
+  '/tipe-member': 'Tipe Member',
+  '/type-member': 'Tipe Member',
+  '/member-sleeper': 'Tipe Member',
   '/member-pareto': 'Member Pareto',
   '/master-alasan-menolak': 'Master Alasan Menolak',
 };

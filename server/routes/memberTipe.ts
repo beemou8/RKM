@@ -8,7 +8,7 @@ import { resolveCabang } from '../lib/cabang.js';
 export const memberTipeRouter = Router();
 
 export type MemberTipe = 'Aktif' | 'Sleeper' | 'Belum Aktivasi' | 'Tidak Aktif';
-export type MemberTipeFilter = 'butuh_visit' | 'Sleeper' | 'Belum Aktivasi' | 'Tidak Aktif' | 'Member Pilihan' | 'semua';
+export type MemberTipeFilter = 'semua' | 'Aktif' | 'Member Pilihan' | 'Sleeper' | 'Belum Aktivasi' | 'Tidak Aktif' | 'butuh_visit';
 
 export interface MemberTipeRow {
   kode_member: string;
@@ -39,9 +39,9 @@ function parseLimit(value: unknown): number {
 }
 
 function parseTipe(value: unknown): MemberTipeFilter {
-  const tipe = String(value ?? 'butuh_visit');
-  const allowed: MemberTipeFilter[] = ['butuh_visit', 'Sleeper', 'Belum Aktivasi', 'Tidak Aktif', 'Member Pilihan', 'semua'];
-  return allowed.includes(tipe as MemberTipeFilter) ? (tipe as MemberTipeFilter) : 'butuh_visit';
+  const tipe = String(value ?? 'semua');
+  const allowed: MemberTipeFilter[] = ['semua', 'Aktif', 'Member Pilihan', 'Sleeper', 'Belum Aktivasi', 'Tidak Aktif', 'butuh_visit'];
+  return allowed.includes(tipe as MemberTipeFilter) ? (tipe as MemberTipeFilter) : 'semua';
 }
 
 function parsePeriode(req: any) {
@@ -139,7 +139,10 @@ async function queryMemberRows(cabang: string, tipe: MemberTipeFilter, limit: nu
           OR ($2 = 'butuh_visit' AND tipe IN ('Sleeper', 'Belum Aktivasi'))
           OR (tipe = $2))
          AND ($4 = '' OR LOWER(kode_member) LIKE $4 OR LOWER(nama_member) LIKE $4 OR LOWER(COALESCE(advisor, '')) LIKE $4)
-       ORDER BY belanja_terakhir ASC NULLS FIRST
+       ORDER BY
+         CASE WHEN $2 = 'Sleeper' THEN belanja_terakhir END ASC NULLS FIRST,
+         belanja_terakhir DESC NULLS LAST,
+         nama_member ASC
        LIMIT $3`,
       [cabang, tipe, limit, searchPattern]
     );
@@ -218,13 +221,14 @@ memberTipeRouter.get('/export', async (req, res) => {
     }
     const cabang = branch.cabang;
     const { bulan, tahun } = parsePeriode(req);
+    const tipe = parseTipe(req.query.tipe || 'semua');
     const pilihanCodes = await getPilihanCodes(cabang);
-    const data = await queryMemberRows(cabang, 'semua', 5000, pilihanCodes);
+    const data = await queryMemberRows(cabang, tipe, 10000, pilihanCodes);
 
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Member Tipe');
-    ws.addRow([`Dashboard Member - Cabang ${cabang}`]);
-    ws.addRow([`Member Pilihan aktif cabang ${cabang}`]);
+    const ws = wb.addWorksheet('Tipe Member');
+    ws.addRow([`Data Tipe Member - Cabang ${cabang}`]);
+    ws.addRow([`Filter: ${tipe === 'semua' ? 'Semua Member' : tipe}`]);
     ws.addRow([]);
     const header = ws.addRow(['Kode Member', 'Nama Member', 'Advisor', 'Belanja Pertama', 'Belanja Terakhir', 'Tipe', 'Member Pilihan', 'Latitude', 'Longitude']);
     styleHeaderRow(header);
@@ -242,7 +246,7 @@ memberTipeRouter.get('/export', async (req, res) => {
       ]);
     }
     ws.columns.forEach((c) => (c.width = 22));
-    await sendWorkbook(res, wb, `Dashboard_Member_${cabang}_${tahun}_${String(bulan).padStart(2, '0')}.xlsx`);
+    await sendWorkbook(res, wb, `Tipe_Member_${cabang}_${tahun}_${String(bulan).padStart(2, '0')}.xlsx`);
   } catch (err: any) {
     console.error('[member-tipe] export error:', err);
     res.status(500).json({ error: err?.message || 'Gagal export data member tipe' });

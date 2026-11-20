@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, type ReactNode } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import { Loader2 } from 'lucide-react';
 
@@ -83,7 +83,7 @@ const JadwalAktif = lazy(() => import('./pages/JadwalAktif'));
 const JadwalBelumTerkunjungi = lazy(() => import('./pages/JadwalBelumTerkunjungi'));
 const MemberBaru = lazy(() => import('./pages/MemberBaru'));
 const TokoTutup = lazy(() => import('./pages/TokoTutup'));
-const MemberSleeper = lazy(() => import('./pages/MemberSleeper'));
+const TipeMember = lazy(() => import('./pages/TipeMember'));
 const SurveiHarga = lazy(() => import('./pages/SurveiHarga'));
 const StatusKunjunganMember = lazy(() => import('./pages/StatusKunjunganMember'));
 const MasterAlasanMenolak = lazy(() => import('./pages/MasterAlasanMenolak'));
@@ -116,7 +116,9 @@ export default function App() {
               <Route path="jadwal-aktif" element={<JadwalAktif />} />
               <Route path="jadwal-belum-terkunjungi" element={<JadwalBelumTerkunjungi />} />
               <Route path="member-baru" element={<MemberBaru />} />
-              <Route path="member-sleeper" element={<MemberSleeper />} />
+              <Route path="tipe-member" element={<TipeMember />} />
+              <Route path="type-member" element={<Navigate to="/tipe-member" replace />} />
+              <Route path="member-sleeper" element={<Navigate to="/tipe-member" replace />} />
               <Route path="status-kunjungan-member" element={<StatusKunjunganMember />} />
               <Route path="toko-tutup" element={<TokoTutup />} />
               <Route path="master-alasan-menolak" element={<MasterAlasanMenolak />} />

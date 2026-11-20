@@ -497,16 +497,17 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 // ============================================================
-// Member Sleeper & Nonaktif (klasifikasi dari riwayat belanja DB lokal)
+// Type Member (klasifikasi dari riwayat belanja DB lokal)
 // ============================================================
 
 export type MemberTipeFilter =
-  | 'butuh_visit'
+  | 'semua'
+  | 'Aktif'
+  | 'Member Pilihan'
   | 'Sleeper'
   | 'Belum Aktivasi'
   | 'Tidak Aktif'
-  | 'Member Pilihan'
-  | 'semua';
+  | 'butuh_visit';
 
 export interface FetchMemberTipeOptions {
   tipe?: MemberTipeFilter | string;
@@ -552,10 +553,11 @@ export function fetchMemberTipe(
   return getJson(`/api/member-tipe?${q.toString()}`);
 }
 
-export function exportMemberTipeUrl(cabang: string, bulan?: string, tahun?: string): string {
+export function exportMemberTipeUrl(cabang: string, bulan?: string, tahun?: string, tipe?: string): string {
   const q = new URLSearchParams({ cabang });
   if (bulan) q.set('bulan', bulan);
   if (tahun) q.set('tahun', tahun);
+  if (tipe && tipe !== 'semua') q.set('tipe', tipe);
   return `/api/member-tipe/export?${q}`;
 }
 
